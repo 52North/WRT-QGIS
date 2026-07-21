@@ -84,10 +84,6 @@ class RoutePage(QWizardPage):
         # Auto-derive the bounding box from the route by default.
         self._bbox_auto = True
 
-        # Remove the map artifacts from the project when the wizard is closed.
-        if parent is not None:
-            parent.finished.connect(self._cleanup_map_artifacts)
-
     def _build_ui(self):
         page_layout = QVBoxLayout(self)
         page_layout.setContentsMargins(0, 0, 0, 0)

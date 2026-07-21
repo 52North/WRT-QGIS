@@ -6,6 +6,9 @@ import re
 from qgis.PyQt.QtCore import QLocale, Qt, pyqtSignal
 from qgis.PyQt.QtGui import QDoubleValidator
 from qgis.PyQt.QtWidgets import (
+    QAbstractButton,
+    QAbstractSpinBox,
+    QComboBox,
     QDoubleSpinBox,
     QFrame,
     QGroupBox,
@@ -15,6 +18,7 @@ from qgis.PyQt.QtWidgets import (
     QPushButton,
     QSizePolicy,
     QSpinBox,
+    QTextEdit,
     QToolButton,
     QVBoxLayout,
     QWidget,
@@ -553,6 +557,24 @@ def in_range(edit):
     except ValueError:
         return False
     return edit._lo <= v <= edit._hi
+
+
+def input_state(root):
+    """Snapshot every input widget's value under `root`.
+
+    Comparing two snapshots tells us whether the user edited a page or not.
+    """
+    state = []
+    for w in root.findChildren(QWidget):
+        if isinstance(w, (QLineEdit, QAbstractSpinBox)):
+            state.append(w.text())
+        elif isinstance(w, QComboBox):
+            state.append(w.currentIndex())
+        elif isinstance(w, QAbstractButton):
+            state.append(w.isChecked())
+        elif isinstance(w, QTextEdit):
+            state.append(w.toPlainText())
+    return state
 
 
 # Shared form-field factories (used across the boat / weather / algorithm pages)

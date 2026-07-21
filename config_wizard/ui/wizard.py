@@ -36,6 +36,7 @@ from .ui_kit import (
     COLOR_SIDEBAR_BG,
     COLOR_TEXT,
     GLOBAL_QSS,
+    input_state,
 )
 
 
@@ -184,6 +185,7 @@ class WRTConfigWizard(QWizard):
 
         self._page_by_id = {}
         self._page_ids = []
+        self._baselines = {}
         self._skip_validation = False
 
         # Build pages
@@ -280,6 +282,7 @@ class WRTConfigWizard(QWizard):
         if self._current_page_id in self._page_by_id:
             self._save_page(self._current_page_id)
         self._current_page_id = page_id
+        self._capture_baseline(page_id)
         self._sync_sidebar()
 
     def validateCurrentPage(self):
@@ -287,17 +290,27 @@ class WRTConfigWizard(QWizard):
             return True
         return super().validateCurrentPage()
 
-    AUTOPOPULATED_KEYS = frozenset({"DEPARTURE_TIME", "DEFAULT_MAP", "ROUTE_PATH"})
+    def _capture_baseline(self, page_id):
+        """Record a page's initial widget values the first time it is shown."""
+        if page_id in self._baselines:
+            return
+        page = self._page_by_id.get(page_id)
+        if page is not None:
+            self._baselines[page_id] = input_state(page)
 
     def has_changes(self):
-        """True if the user has entered anything meaningful beyond the defaults."""
-        self._save_page(self.currentId())
-        for key, default in DEFAULTS.items():
-            if key.startswith("_") or key in self.AUTOPOPULATED_KEYS:
-                continue
-            if self.config.get(key) != default:
-                return True
-        return False
+        """True if the user has edited any page compared to its initial state."""
+        return any(
+            input_state(self._page_by_id[page_id]) != baseline
+            for page_id, baseline in self._baselines.items()
+        )
+
+    def cleanup(self):
+        """Drop the map artifacts the pages added to the project."""
+        for _title, page in self._steps:
+            cleanup = getattr(page, "_cleanup_map_artifacts", None)
+            if cleanup is not None:
+                cleanup()
 
     def reject(self):
         """Close the wizard, prompting to discard if there are unsaved changes."""
@@ -362,14 +375,20 @@ class WRTConfigWindow(QDialog):
         box.exec_()
         return box.clickedButton() is discard_btn
 
+    def accept(self):
+        self.wizard.cleanup()
+        super().accept()
+
     def reject(self):
         # Escape key and the wizard's Cancel button land here.
         if self.confirm_discard():
+            self.wizard.cleanup()
             super().reject()
 
     def closeEvent(self, event):
         # Title-bar close / Alt+F4.
         if self.confirm_discard():
+            self.wizard.cleanup()
             event.accept()
             QDialog.reject(self)
         else:
