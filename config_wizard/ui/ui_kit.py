@@ -184,6 +184,34 @@ QToolButton#PickBtn {{
 QToolButton#PickBtn:hover {{ background: {COLOR_PRIMARY_SOFT}; border-color: {COLOR_PRIMARY}; }}
 """
 
+# Calendar popup QSS — applied to each QDateTimeEdit
+CALENDAR_QSS = """
+QCalendarWidget QWidget { color: palette(text); background: palette(window); border-bottom: 1px solid grey; border-left: 1px solid grey; border-right: 1px solid grey; }
+QCalendarWidget QAbstractItemView {
+    color: palette(text);
+    background: palette(base);
+    selection-background-color: palette(highlight);
+    selection-color: palette(highlighted-text);
+}
+QCalendarWidget QAbstractItemView::item:hover { background: palette(alternate-base); }
+QCalendarWidget QToolButton { color: palette(button-text); background: transparent; }
+/* Taking over the background above also takes over the hover and pressed
+   states: without these the month/year buttons flood solid black on hover. */
+QCalendarWidget QToolButton:hover, QCalendarWidget QToolButton:pressed {
+    background: palette(highlight);
+    color: palette(highlighted-text);
+    border-radius: 4px;
+}
+QCalendarWidget QSpinBox { color: palette(text); background: palette(base); }
+"""
+
+
+def style_calendar(dt_edit):
+    """Hand a QDateTimeEdit's calendar popup back to the system theme."""
+    cal = dt_edit.calendarWidget()
+    if cal is not None:  # None when the picker has no calendar popup
+        cal.setStyleSheet(CALENDAR_QSS)
+
 
 # Components
 class ClickableLabel(QLabel):

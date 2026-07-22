@@ -8,6 +8,7 @@ import copy
 from qgis.core import Qgis, QgsMessageLog
 from qgis.PyQt.QtCore import Qt, pyqtSignal
 from qgis.PyQt.QtWidgets import (
+    QDateTimeEdit,
     QDialog,
     QFrame,
     QHBoxLayout,
@@ -37,6 +38,7 @@ from .ui_kit import (
     COLOR_TEXT,
     GLOBAL_QSS,
     input_state,
+    style_calendar,
 )
 
 
@@ -354,6 +356,10 @@ class WRTConfigWindow(QDialog):
         self.wizard.setWindowFlags(Qt.Widget)
         self.wizard.accepted.connect(self.accept)
         # Cancel/close is routed through a confirm dialog to avoid accidental loss of user input.
+
+        # Date pickers keep the system theme — see CALENDAR_QSS.
+        for picker in self.wizard.findChildren(QDateTimeEdit):
+            style_calendar(picker)
 
         root.addWidget(self.sidebar)
         root.addWidget(self.wizard, 1)
