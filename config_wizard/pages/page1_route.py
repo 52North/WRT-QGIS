@@ -59,6 +59,11 @@ from ..ui.ui_kit import (
 )
 
 
+def _rounded(coord_pairs):
+    """Coordinate pairs at the 4-decimal precision LatLonField.set_coords displays."""
+    return [(round(lat, 4), round(lon, 4)) for lat, lon in coord_pairs]
+
+
 class RoutePage(QWizardPage):
     def __init__(self, config, parent=None):
         super().__init__(parent)
@@ -138,10 +143,7 @@ class RoutePage(QWizardPage):
         self.add_row.clicked.connect(self._on_add_waypoint_clicked)
         self.wp_container.addWidget(self.add_row)
 
-        for wpt in self.config.get("INTERMEDIATE_WAYPOINTS", []):
-            if len(wpt) == 2:
-                field = self._add_waypoint()
-                field.set_coords(float(wpt[0]), float(wpt[1]))
+        self._sync_waypoints_from_config()
 
         # Departure time
         self.dep_dt, dep_widget = self._make_dt_field("D", COLOR_ORANGE, clearable=False)
@@ -311,6 +313,37 @@ class RoutePage(QWizardPage):
         if lat is not None and lon is not None:
             field.set_coords(float(lat), float(lon))
         return field
+
+    def _config_waypoints(self):
+        """INTERMEDIATE_WAYPOINTS as a list of (lat, lon) float pairs."""
+        waypoints = []
+        for wpt in self.config.get("INTERMEDIATE_WAYPOINTS") or []:
+            if len(wpt) != 2:
+                continue
+            try:
+                waypoints.append((float(wpt[0]), float(wpt[1])))
+            except (TypeError, ValueError):
+                continue
+        return waypoints
+
+    def _sync_waypoints_from_config(self):
+        """Rebuild the waypoint rows from the config (no-op when they already match).
+
+        The rows are widgets created on demand, so a config loaded from disk — or one
+        whose waypoints changed behind our back — needs them re-created.
+        """
+        wanted = self._config_waypoints()
+        # Compare at the precision the fields display, and ignore rows the user has
+        # left incomplete — they are not in the config but must not be wiped either.
+        shown = [entry["field"].get_coords() for entry in self.waypoint_rows]
+        if _rounded(coords for coords in shown if coords is not None) == _rounded(wanted):
+            return
+
+        for entry in list(self.waypoint_rows):
+            entry["field"].setParent(None)
+        self.waypoint_rows = []
+        for lat, lon in wanted:
+            self._add_waypoint(lat, lon)
 
     def _renumber_waypoints(self):
         for i, entry in enumerate(self.waypoint_rows):
@@ -617,6 +650,8 @@ class RoutePage(QWizardPage):
                 self.config["DEFAULT_MAP"] = ""
 
     def initializePage(self):
+        self._sync_waypoints_from_config()
+
         route = self.config.get("DEFAULT_ROUTE", "")
         if route:
             parts = [p.strip() for p in route.split(",")]
@@ -626,6 +661,11 @@ class RoutePage(QWizardPage):
                     self.dst_field.set_coords(float(parts[2]), float(parts[3]))
                 except ValueError:
                     pass
+        else:
+            # A config without a route (e.g. one just loaded) must not leave the
+            # previous source/destination on screen.
+            self.src_field.clear()
+            self.dst_field.clear()
         dep_str = self.config.get("DEPARTURE_TIME", "")
         if dep_str:
             utc_dt = QDateTime.fromString(dep_str, "yyyy-MM-ddTHH:mmZ")
@@ -649,7 +689,26 @@ class RoutePage(QWizardPage):
                     self._bbox_auto = False
                 except ValueError:
                     pass
+        else:
+            self._clear_bbox_fields()
         self._update_status()
+
+    def _clear_bbox_fields(self):
+        """Empty the bbox inputs and hand the box back to route auto-tracking."""
+        self._setting_bbox = True
+        try:
+            for field in (
+                self.bbox_lat_min,
+                self.bbox_lon_min,
+                self.bbox_lat_max,
+                self.bbox_lon_max,
+            ):
+                field.clear()
+        finally:
+            self._setting_bbox = False
+        self.on_bbox_changed()
+        self._bbox_auto = True
+        self._derive_bbox_from_route(track=True)
 
     # Map picking
     def _start_map_pick(self, field, label):

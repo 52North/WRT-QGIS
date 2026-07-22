@@ -4,23 +4,27 @@ Page order: Route → Algorithm → Boat → Weather & Depth → Constraints →
 """
 
 import copy
+import os
 
 from qgis.core import Qgis, QgsMessageLog
 from qgis.PyQt.QtCore import Qt, pyqtSignal
 from qgis.PyQt.QtWidgets import (
     QDateTimeEdit,
     QDialog,
+    QFileDialog,
     QFrame,
     QHBoxLayout,
     QLabel,
     QMessageBox,
     QProgressBar,
+    QPushButton,
     QSizePolicy,
     QVBoxLayout,
     QWidget,
     QWizard,
 )
 
+from ..core.config_io import ConfigLoadError, load_config_json
 from ..core.defaults import DEFAULTS
 from ..pages.page1_route import RoutePage
 from ..pages.page2_algorithm import AlgorithmPage
@@ -99,6 +103,7 @@ class _StepRow(QFrame):
 
 class _StepSidebar(QWidget):
     stepClicked = pyqtSignal(int)
+    loadRequested = pyqtSignal()
 
     def __init__(self, steps, parent=None):
         super().__init__(parent)
@@ -133,6 +138,15 @@ class _StepSidebar(QWidget):
             root.addWidget(row)
 
         root.addStretch(1)
+
+        self.load_btn = QPushButton("📂  Load config.json…")
+        self.load_btn.setToolTip("Fill the wizard from an existing configuration file")
+        self.load_btn.setAutoDefault(False)
+        self.load_btn.setDefault(False)
+        self.load_btn.setCursor(Qt.PointingHandCursor)
+        self.load_btn.clicked.connect(self.loadRequested)
+        root.addWidget(self.load_btn)
+        root.addSpacing(12)
 
         progress_title = QLabel("Progress")
         progress_title.setObjectName("SidebarProgressTitle")
@@ -197,8 +211,9 @@ class WRTConfigWizard(QWizard):
         self.page4 = WeatherPage(self.config)  # Weather & Depth
         self.page5 = ConstraintsPage(self.config)  # Constraints
 
-        data_pages = [self.page1, self.page2, self.page3, self.page4, self.page5]
-        self.page6 = ReviewPage(self.config, data_pages)
+        # Pages that own config values (the Review page only renders them).
+        self._data_pages = [self.page1, self.page2, self.page3, self.page4, self.page5]
+        self.page6 = ReviewPage(self.config, self._data_pages)
 
         self._steps = [
             (self.page1.title(), self.page1),
@@ -300,6 +315,20 @@ class WRTConfigWizard(QWizard):
         if page is not None:
             self._baselines[page_id] = input_state(page)
 
+    def load_config(self, loaded_config):
+        """Replace the wizard's values with a config loaded from disk."""
+        # Every page holds a reference to this same dict — refill it in place.
+        self.config.clear()
+        self.config.update(loaded_config)
+
+        for page in self._data_pages:
+            page.initializePage()
+
+        # The loaded file is the new starting point, so it isn't "unsaved input".
+        self._baselines.clear()
+        self._jump_to_step(0)
+        self._capture_baseline(self.currentId())
+
     def has_changes(self):
         """True if the user has edited any page compared to its initial state."""
         return any(
@@ -351,6 +380,8 @@ class WRTConfigWindow(QDialog):
         self.sidebar.setFixedWidth(250)
         self.sidebar.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Expanding)
 
+        self.sidebar.loadRequested.connect(self._on_load_config)
+
         self.wizard = WRTConfigWizard(iface, self, sidebar=self.sidebar)
         self.wizard.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         self.wizard.setWindowFlags(Qt.Widget)
@@ -363,6 +394,45 @@ class WRTConfigWindow(QDialog):
 
         root.addWidget(self.sidebar)
         root.addWidget(self.wizard, 1)
+
+    # Loading an existing configuration
+    def _on_load_config(self):
+        if not self._confirm_replace():
+            return
+        path, _ = QFileDialog.getOpenFileName(
+            self, "Load WRT configuration", "", "JSON (*.json);;All files (*)"
+        )
+        if not path:
+            return
+        try:
+            loaded_config, warnings = load_config_json(path)
+        except ConfigLoadError as error:
+            QMessageBox.critical(self, "Could not load configuration", str(error))
+            return
+
+        self.wizard.load_config(loaded_config)
+
+        message = f"Loaded {os.path.basename(path)}."
+        if warnings:
+            message += "\n\n" + "\n".join(f"• {w}" for w in warnings)
+        QMessageBox.information(self, "Configuration loaded", message)
+
+    def _confirm_replace(self):
+        """Return True if the current input may be replaced by a loaded config."""
+        if not self.wizard.has_changes():
+            return True
+        box = QMessageBox(self)
+        box.setIcon(QMessageBox.Warning)
+        box.setWindowTitle("Confirm")
+        box.setText(
+            "Loading a configuration will replace the values you've entered.\n"
+            "Are you sure you want to continue?"
+        )
+        replace_btn = box.addButton("Replace", QMessageBox.DestructiveRole)
+        keep_btn = box.addButton("Keep editing", QMessageBox.RejectRole)
+        box.setDefaultButton(keep_btn)
+        box.exec_()
+        return box.clickedButton() is replace_btn
 
     def confirm_discard(self):
         """Return True if the wizard may close (nothing entered, or user confirms)."""
