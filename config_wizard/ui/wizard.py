@@ -2,14 +2,15 @@
 
 Page order: Route → Algorithm → Boat → Weather & Depth → Constraints → Review.
 """
+
 import copy
 
 from qgis.core import Qgis, QgsMessageLog
 from qgis.PyQt.QtCore import Qt, pyqtSignal
 from qgis.PyQt.QtWidgets import (
     QDialog,
-    QHBoxLayout,
     QFrame,
+    QHBoxLayout,
     QLabel,
     QMessageBox,
     QProgressBar,
@@ -20,20 +21,27 @@ from qgis.PyQt.QtWidgets import (
 )
 
 from ..core.defaults import DEFAULTS
-from .ui_kit import (
-    COLOR_BORDER, COLOR_GRAY_BADGE, COLOR_MUTED, COLOR_PRIMARY,
-    COLOR_PRIMARY_SOFT, COLOR_SIDEBAR_BG, COLOR_TEXT, GLOBAL_QSS,
-)
 from ..pages.page1_route import RoutePage
 from ..pages.page2_algorithm import AlgorithmPage
 from ..pages.page3_boat import BoatPage
 from ..pages.page4_weather import WeatherPage
 from ..pages.page5_constraints import ConstraintsPage
 from ..pages.page6_review import ReviewPage
+from .ui_kit import (
+    COLOR_BORDER,
+    COLOR_GRAY_BADGE,
+    COLOR_MUTED,
+    COLOR_PRIMARY,
+    COLOR_PRIMARY_SOFT,
+    COLOR_SIDEBAR_BG,
+    COLOR_TEXT,
+    GLOBAL_QSS,
+)
 
 
 class _StepRow(QFrame):
     """A single clickable navigation step: numbered badge + label."""
+
     clicked = pyqtSignal(int)
 
     def __init__(self, index, name, parent=None):
@@ -64,9 +72,7 @@ class _StepRow(QFrame):
 
     def set_active(self, active):
         if active:
-            self.setStyleSheet(
-                "QFrame#StepRow { background: #ffffff; border-radius: 8px; }"
-            )
+            self.setStyleSheet("QFrame#StepRow { background: #ffffff; border-radius: 8px; }")
             self.badge.setStyleSheet(
                 f"background: {COLOR_PRIMARY}; color: white; border-radius: 13px;"
                 "font-weight: 600; font-size: 12px;"
@@ -181,11 +187,11 @@ class WRTConfigWizard(QWizard):
         self._skip_validation = False
 
         # Build pages
-        self.page1 = RoutePage(self.config, self)      # Route
-        self.page2 = AlgorithmPage(self.config)        # Algorithm
-        self.page3 = BoatPage(self.config)             # Boat
-        self.page4 = WeatherPage(self.config)          # Weather & Depth
-        self.page5 = ConstraintsPage(self.config)      # Constraints
+        self.page1 = RoutePage(self.config, self)  # Route
+        self.page2 = AlgorithmPage(self.config)  # Algorithm
+        self.page3 = BoatPage(self.config)  # Boat
+        self.page4 = WeatherPage(self.config)  # Weather & Depth
+        self.page5 = ConstraintsPage(self.config)  # Constraints
 
         data_pages = [self.page1, self.page2, self.page3, self.page4, self.page5]
         self.page6 = ReviewPage(self.config, data_pages)
@@ -199,7 +205,7 @@ class WRTConfigWizard(QWizard):
             (self.page6.title(), self.page6),
         ]
 
-        for title, page in self._steps:
+        for _title, page in self._steps:
             page_id = self.addPage(page)
             self._page_ids.append(page_id)
             self._page_by_id[page_id] = page
@@ -227,17 +233,15 @@ class WRTConfigWizard(QWizard):
         except Exception as e:
             QgsMessageLog.logMessage(
                 f"save_to_config failed for {type(page).__name__}: {e}",
-                "Weather Routing Tool", Qgis.Warning,
+                "Weather Routing Tool",
+                Qgis.Warning,
             )
 
     def _sync_sidebar(self):
         if self._sidebar is None:
             return
         current_id = self.currentId()
-        if current_id in self._page_by_id:
-            index = self._page_ids.index(current_id)
-        else:
-            index = 0
+        index = self._page_ids.index(current_id) if current_id in self._page_by_id else 0
         self._sidebar.set_current_step(index)
 
     def _on_sidebar_step_clicked(self, target_index):
@@ -247,7 +251,9 @@ class WRTConfigWizard(QWizard):
         self._jump_to_step(target_index)
 
     def _jump_to_step(self, target_index):
-        current_index = self._page_ids.index(self.currentId()) if self.currentId() in self._page_by_id else 0
+        current_index = (
+            self._page_ids.index(self.currentId()) if self.currentId() in self._page_by_id else 0
+        )
         if target_index == current_index:
             return
 
@@ -258,8 +264,11 @@ class WRTConfigWizard(QWizard):
             while current_index != target_index and guard > 0:
                 guard -= 1
                 self.next() if step > 0 else self.back()
-                new_index = (self._page_ids.index(self.currentId())
-                             if self.currentId() in self._page_by_id else current_index)
+                new_index = (
+                    self._page_ids.index(self.currentId())
+                    if self.currentId() in self._page_by_id
+                    else current_index
+                )
                 if new_index == current_index:
                     break
                 current_index = new_index
@@ -277,7 +286,6 @@ class WRTConfigWizard(QWizard):
         if self._skip_validation:
             return True
         return super().validateCurrentPage()
-
 
     AUTOPOPULATED_KEYS = frozenset({"DEPARTURE_TIME", "DEFAULT_MAP", "ROUTE_PATH"})
 

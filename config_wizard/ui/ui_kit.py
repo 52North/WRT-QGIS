@@ -1,12 +1,23 @@
 """Shared UI toolkit — colours, global stylesheet, badges and the coordinate field."""
+
 import os
 import re
 
-from qgis.PyQt.QtCore import Qt, QLocale, pyqtSignal
+from qgis.PyQt.QtCore import QLocale, Qt, pyqtSignal
 from qgis.PyQt.QtGui import QDoubleValidator
 from qgis.PyQt.QtWidgets import (
-    QDoubleSpinBox, QFrame, QGroupBox, QHBoxLayout, QLabel, QLineEdit,
-    QPushButton, QSizePolicy, QSpinBox, QToolButton, QVBoxLayout, QWidget,
+    QDoubleSpinBox,
+    QFrame,
+    QGroupBox,
+    QHBoxLayout,
+    QLabel,
+    QLineEdit,
+    QPushButton,
+    QSizePolicy,
+    QSpinBox,
+    QToolButton,
+    QVBoxLayout,
+    QWidget,
 )
 
 # Check icon svg path
@@ -173,6 +184,7 @@ QToolButton#PickBtn:hover {{ background: {COLOR_PRIMARY_SOFT}; border-color: {CO
 # Components
 class ClickableLabel(QLabel):
     """A QLabel that emits ``clicked`` on a left-button press."""
+
     clicked = pyqtSignal()
 
     def mousePressEvent(self, event):
@@ -209,6 +221,7 @@ def make_dashed_badge(diameter=26):
 
 class addWaypoint(QWidget):
     """The dashed '+ Click to add waypoint' placeholder row."""
+
     clicked = pyqtSignal()
 
     def __init__(self, parent=None):
@@ -240,9 +253,7 @@ class addWaypoint(QWidget):
 
 
 def field_label(text, required=False):
-    lbl = QLabel(
-        f"{text} <span style='color:{COLOR_REQUIRED}'>*</span>" if required else text
-    )
+    lbl = QLabel(f"{text} <span style='color:{COLOR_REQUIRED}'>*</span>" if required else text)
     lbl.setObjectName("SectionLabel")
     lbl.setTextFormat(Qt.RichText)
     return lbl
@@ -311,6 +322,7 @@ class CheckCard(QFrame):
     renders as a whole-row clickable, highlightable card. Styling lives in
     GLOBAL_QSS under the ``CheckCard`` object names.
     """
+
     toggled = pyqtSignal(bool)
 
     def __init__(self, title, description="", parent=None):
@@ -453,12 +465,14 @@ class CoordinateField(QWidget):
         action_clicked — the trailing ✕ button was clicked (clear or remove).
         changed        — the text changed.
     """
+
     pick_requested = pyqtSignal()
     action_clicked = pyqtSignal()
     changed = pyqtSignal()
 
-    def __init__(self, badge_text, badge_color, placeholder="Click map to add…",
-                 parent=None, show_pick=True):
+    def __init__(
+        self, badge_text, badge_color, placeholder="Click map to add…", parent=None, show_pick=True
+    ):
         super().__init__(parent)
         row = QHBoxLayout(self)
         row.setContentsMargins(0, 0, 0, 0)
@@ -513,7 +527,7 @@ def coord_input(placeholder, low, high):
     edit.setPlaceholderText(placeholder)
     validator = QDoubleValidator(low, high, 6)
     validator.setNotation(QDoubleValidator.StandardNotation)
-    validator.setLocale(QLocale.c())   # force '.' as decimal separator
+    validator.setLocale(QLocale.c())  # force '.' as decimal separator
     edit.setValidator(validator)
     edit.setLocale(QLocale.c())
     edit.setMinimumWidth(0)
@@ -523,9 +537,7 @@ def coord_input(placeholder, low, high):
 
 def set_field_error(widget, error):
     """Toggle a red error border on an input widget (e.g. out-of-range value)."""
-    widget.setStyleSheet(
-        f"QLineEdit {{ border: 1px solid {COLOR_REQUIRED}; }}" if error else ""
-    )
+    widget.setStyleSheet(f"QLineEdit {{ border: 1px solid {COLOR_REQUIRED}; }}" if error else "")
 
 
 def in_range(edit):
@@ -605,12 +617,14 @@ def collapsible(title):
         vis = not box.isVisible()
         box.setVisible(vis)
         btn.setText(("▼" if vis else "▶") + "  " + title)
+
     btn.clicked.connect(toggle)
     return btn, box
 
 
 class LatLonField(QWidget):
     """A badge + separate Latitude/Longitude inputs + pick/clear buttons."""
+
     pick_requested = pyqtSignal()
     action_clicked = pyqtSignal()
     changed = pyqtSignal()
@@ -634,8 +648,7 @@ class LatLonField(QWidget):
         # Persistent captions so the user can tell latitude from longitude even
         # once both inputs are filled (a placeholder would disappear).
         cap_css = (
-            f"color: {COLOR_MUTED}; font-size: 10px; font-weight: 600;"
-            " background: transparent;"
+            f"color: {COLOR_MUTED}; font-size: 10px; font-weight: 600; background: transparent;"
         )
         lat_cap = QLabel("Lat")
         lat_cap.setStyleSheet(cap_css)

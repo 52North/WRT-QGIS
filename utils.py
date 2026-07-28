@@ -1,4 +1,5 @@
 """Shared QGIS helpers for the Weather Routing Tool plugin."""
+
 from qgis.core import QgsProject, QgsRasterLayer
 
 

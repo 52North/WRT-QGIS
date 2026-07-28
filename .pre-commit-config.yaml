@@ -1,0 +1,10 @@
+# Pre-commit hooks for the WRT QGIS plugin.
+repos:
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.15.22
+    hooks:
+      # Linter (with autofix)
+      - id: ruff
+        args: [--fix]
+      # Formatter
+      - id: ruff-format

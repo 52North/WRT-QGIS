@@ -6,18 +6,17 @@ https://52north.github.io/WeatherRoutingTool/source/configuration.html
 
 DEFAULTS = {
     # --- Route (Page 1) ---
-    "DEFAULT_MAP": "",          # bbox lat_min,lon_min,lat_max,lon_max  (derived from route if blank)
-    "DEFAULT_ROUTE": "",        # lat_start,lon_start,lat_end,lon_end
-    "DEPARTURE_TIME": "",       # yyyy-mm-ddThh:mmZ
-    "ARRIVAL_TIME": "",         # optional
-    "INTERMEDIATE_WAYPOINTS": [],   # [[lat,lon], ...]
+    "DEFAULT_MAP": "",  # bbox lat_min,lon_min,lat_max,lon_max  (derived from route if blank)
+    "DEFAULT_ROUTE": "",  # lat_start,lon_start,lat_end,lon_end
+    "DEPARTURE_TIME": "",  # yyyy-mm-ddThh:mmZ
+    "ARRIVAL_TIME": "",  # optional
+    "INTERMEDIATE_WAYPOINTS": [],  # [[lat,lon], ...]
     "ROUTE_PATH": "",
-
     # --- Boat (Page 2) ---
     "BOAT_LENGTH": "",
     "BOAT_BREADTH": "",
     "BOAT_TYPE": "direct_power_method",
-    "BOAT_SPEED": 7.0,         # m/s
+    "BOAT_SPEED": 7.0,  # m/s
     "BOAT_FUEL_RATE": "",
     "BOAT_HBR": "",
     "BOAT_SMCR_POWER": "",
@@ -46,13 +45,11 @@ DEFAULTS = {
     "BOAT_FACTOR_WIND_FORCES": 1,
     "AIR_MASS_DENSITY": 1.2225,
     "COURSES_FILE": "",
-
     # --- Weather & Depth (Page 3) ---
     "WEATHER_DATA": "",
     "DEPTH_DATA": "",
     "DELTA_TIME_FORECAST": 3,
     "TIME_FORECAST": 90,
-
     # --- Algorithm (Page 4) ---
     "ALGORITHM_TYPE": "isofuel",
     # Isofuel / isochrone params
@@ -90,13 +87,11 @@ DEFAULTS = {
     "DIJKSTRA_NOF_NEIGHBORS": 1,
     "DIJKSTRA_STEP": 1,
     "DIJKSTRA_MASK_FILE": "",
-
     # --- Constraints (Page 5) ---
     "CONSTRAINTS_LIST": ["land_crossing_global_land_mask", "water_depth", "on_map"],
-
     # --- Wizard-internal state (genetic)) ---
-    "_GENETIC_INTENT": "speed_waypoints",   # waypoints | speed_waypoints | speed
-    "_GENETIC_SCHEDULE": "via_speed",        # via_speed | via_arrival (waypoints-only mode)
+    "_GENETIC_INTENT": "speed_waypoints",  # waypoints | speed_waypoints | speed
+    "_GENETIC_SCHEDULE": "via_speed",  # via_speed | via_arrival (waypoints-only mode)
 }
 
 # Wizard-internal keys never written to the exported config.json.

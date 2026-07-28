@@ -3,16 +3,50 @@
 The algorithm is chosen on this page; the parameter panel below switches to
 match the selection.
 """
+
+from qgis.PyQt.QtCore import QDateTime, Qt
 from qgis.PyQt.QtWidgets import (
-    QWizardPage, QVBoxLayout, QFormLayout, QLabel, QComboBox,
-    QGroupBox, QCheckBox, QScrollArea, QWidget,
-    QHBoxLayout, QLineEdit, QPushButton, QFileDialog, QStackedWidget,
+    QCheckBox,
+    QComboBox,
     QDateTimeEdit,
+    QFileDialog,
+    QFormLayout,
+    QGroupBox,
+    QHBoxLayout,
+    QLabel,
+    QLineEdit,
+    QPushButton,
+    QScrollArea,
+    QStackedWidget,
+    QVBoxLayout,
+    QWidget,
+    QWizardPage,
 )
-from qgis.PyQt.QtCore import Qt, QDateTime
+
+from ..core.defaults import (
+    ALGORITHM_OPTIONS,
+    GENETIC_CROSSOVER_PATCHER_OPTIONS,
+    GENETIC_INTENT_CROSSOVER,
+    GENETIC_INTENT_OPTIONS,
+    GENETIC_MUTATION_OPTIONS,
+    GENETIC_MUTATION_SPEED_OPTIONS,
+    GENETIC_MUTATION_WAYPOINT_OPTIONS,
+    GENETIC_POPULATION_OPTIONS,
+    GENETIC_REPAIR_OPTIONS,
+    MINIMISATION_OPTIONS,
+    PRUNE_GROUP_OPTIONS,
+    SYMMETRY_AXIS_OPTIONS,
+)
 from ..ui.ui_kit import (
-    COLOR_MUTED, COLOR_WARNING, StatusLine, collapsible, dspin, field_label,
-    ispin, opt_label, page_header,
+    COLOR_MUTED,
+    COLOR_WARNING,
+    StatusLine,
+    collapsible,
+    dspin,
+    field_label,
+    ispin,
+    opt_label,
+    page_header,
 )
 
 # Fixed stack position for each algorithm.
@@ -24,14 +58,6 @@ _ALGO_STACK = {
     "genetic_shortest_route": 4,
     "speedy_isobased": 5,
 }
-
-from ..core.defaults import (
-    ALGORITHM_OPTIONS, MINIMISATION_OPTIONS, PRUNE_GROUP_OPTIONS,
-    SYMMETRY_AXIS_OPTIONS, GENETIC_POPULATION_OPTIONS, GENETIC_MUTATION_OPTIONS,
-    GENETIC_CROSSOVER_PATCHER_OPTIONS, GENETIC_REPAIR_OPTIONS,
-    GENETIC_INTENT_OPTIONS, GENETIC_INTENT_CROSSOVER,
-    GENETIC_MUTATION_WAYPOINT_OPTIONS, GENETIC_MUTATION_SPEED_OPTIONS,
-)
 
 _ALGO_LABELS = dict(ALGORITHM_OPTIONS)
 
@@ -46,12 +72,12 @@ _ALGO_DESCRIPTIONS = {
 
 _INTENT_DESCRIPTIONS = {
     "waypoints": "Optimise the route geometry at a fixed schedule. Crossover and "
-                 "mutation are restricted to waypoint operators; only fuel "
-                 "consumption is optimised.",
+    "mutation are restricted to waypoint operators; only fuel "
+    "consumption is optimised.",
     "speed_waypoints": "Optimise both the route geometry and the speed profile. "
-                       "Fuel consumption and/or arrival-time accuracy can be weighted.",
+    "Fuel consumption and/or arrival-time accuracy can be weighted.",
     "speed": "Optimise only the speed profile on a fixed route. Not yet "
-             "implemented in the routing tool.",
+    "implemented in the routing tool.",
 }
 
 
@@ -110,12 +136,12 @@ class AlgorithmPage(QWizardPage):
 
         # Stacked param panels — order matches _ALGO_STACK indices.
         self.stack = QStackedWidget()
-        self.stack.addWidget(self._build_isofuel_page())           # 0
-        self.stack.addWidget(self._build_genetic_page())           # 1
-        self.stack.addWidget(self._build_gcr_slider_page())        # 2
-        self.stack.addWidget(self._build_dijkstra_page())          # 3
+        self.stack.addWidget(self._build_isofuel_page())  # 0
+        self.stack.addWidget(self._build_genetic_page())  # 1
+        self.stack.addWidget(self._build_gcr_slider_page())  # 2
+        self.stack.addWidget(self._build_dijkstra_page())  # 3
         self.stack.addWidget(self._build_genetic_shortest_page())  # 4
-        self.stack.addWidget(self._build_speedy_page())            # 5
+        self.stack.addWidget(self._build_speedy_page())  # 5
         root.addWidget(self.stack)
 
         root.addStretch()
@@ -146,12 +172,22 @@ class AlgorithmPage(QWizardPage):
         self.iso_prune_half = ispin(val=91, mn=1, mx=180)
         self.iso_prune_segs = ispin(val=20, mn=1)
         self.iso_prune_sym = _combo(SYMMETRY_AXIS_OPTIONS)
-        adv.addRow(opt_label("Minimisation criterion", "ISOCHRONE_MINIMISATION_CRITERION"), self.iso_min_crit)
-        adv.addRow(opt_label("Max routing steps", "ISOCHRONE_MAX_ROUTING_STEPS"), self.iso_max_steps)
+        adv.addRow(
+            opt_label("Minimisation criterion", "ISOCHRONE_MINIMISATION_CRITERION"),
+            self.iso_min_crit,
+        )
+        adv.addRow(
+            opt_label("Max routing steps", "ISOCHRONE_MAX_ROUTING_STEPS"), self.iso_max_steps
+        )
         adv.addRow(opt_label("Prune groups", "ISOCHRONE_PRUNE_GROUPS"), self.iso_prune_groups)
-        adv.addRow(opt_label("Prune sector half (°)", "ISOCHRONE_PRUNE_SECTOR_DEG_HALF"), self.iso_prune_half)
+        adv.addRow(
+            opt_label("Prune sector half (°)", "ISOCHRONE_PRUNE_SECTOR_DEG_HALF"),
+            self.iso_prune_half,
+        )
         adv.addRow(opt_label("Prune segments", "ISOCHRONE_PRUNE_SEGMENTS"), self.iso_prune_segs)
-        adv.addRow(opt_label("Prune symmetry axis", "ISOCHRONE_PRUNE_SYMMETRY_AXIS"), self.iso_prune_sym)
+        adv.addRow(
+            opt_label("Prune symmetry axis", "ISOCHRONE_PRUNE_SYMMETRY_AXIS"), self.iso_prune_sym
+        )
         v.addWidget(btn)
         v.addWidget(box)
         v.addStretch()
@@ -163,11 +199,11 @@ class AlgorithmPage(QWizardPage):
         v.setContentsMargins(0, 0, 0, 0)
         v.setSpacing(10)
 
-        # Intent selector — 
+        # Intent selector —
         # 1. Waypoints-only
         # 2. Speed & waypoints
         # 3. Speed-only — not yet implemented.
-        
+
         v.addWidget(field_label("Optimization Options"))
         self.gen_intent = QComboBox()
         for val, lbl in GENETIC_INTENT_OPTIONS:
@@ -189,7 +225,9 @@ class AlgorithmPage(QWizardPage):
         req_form.setLabelAlignment(Qt.AlignRight)
         req_form.setSpacing(8)
         self.gen_generations = ispin(val=20, mn=1)
-        req_form.addRow(opt_label("Generations", "GENETIC_NUMBER_GENERATIONS"), self.gen_generations)
+        req_form.addRow(
+            opt_label("Generations", "GENETIC_NUMBER_GENERATIONS"), self.gen_generations
+        )
         v.addWidget(req)
 
         # Objective weights (contextual)
@@ -234,7 +272,7 @@ class AlgorithmPage(QWizardPage):
         sched_form.addRow(self.gen_sched_arrival_lbl, self.gen_sched_arrival)
         sched_v.addLayout(sched_form)
         v.addWidget(self.gen_sched_box)
-        
+
         # Speed + waypoints: both speed AND arrival time required.
         self.gen_sw_box = QGroupBox("Speed & arrival time")
         sw_form = QFormLayout(self.gen_sw_box)
@@ -270,7 +308,9 @@ class AlgorithmPage(QWizardPage):
         self.gen_pop_path = QLineEdit()
         self.gen_pop_path.setPlaceholderText("GeoJSON path (only for from_geojson)")
         gen_pop_browse = QPushButton("Browse…")
-        gen_pop_browse.clicked.connect(lambda: self._browse(self.gen_pop_path, "GeoJSON (*.geojson *.json)"))
+        gen_pop_browse.clicked.connect(
+            lambda: self._browse(self.gen_pop_path, "GeoJSON (*.geojson *.json)")
+        )
         self.gen_pop_path_row = QWidget()
         pop_path_row = QHBoxLayout(self.gen_pop_path_row)
         pop_path_row.setContentsMargins(0, 0, 0, 0)
@@ -286,7 +326,9 @@ class AlgorithmPage(QWizardPage):
         adv.addRow(opt_label("Population type", "GENETIC_POPULATION_TYPE"), self.gen_pop_type)
         adv.addRow(self.gen_pop_path_lbl, self.gen_pop_path_row)
         adv.addRow(opt_label("Repair strategy", "GENETIC_REPAIR_TYPE"), self.gen_repair)
-        adv.addRow(opt_label("Crossover patcher", "GENETIC_CROSSOVER_PATCHER"), self.gen_crossover_patcher)
+        adv.addRow(
+            opt_label("Crossover patcher", "GENETIC_CROSSOVER_PATCHER"), self.gen_crossover_patcher
+        )
         adv.addRow(self.gen_fix_seed)
         v.addWidget(btn)
         v.addWidget(box)
@@ -311,7 +353,9 @@ class AlgorithmPage(QWizardPage):
         self.gcr_interpolate = QCheckBox("Interpolate (GCR_SLIDER_INTERPOLATE)")
         self.gcr_interpolate.setChecked(True)
         self.gcr_interp_dist = dspin(val=0.1, dec=3)
-        self.gcr_interp_normalized = QCheckBox("Normalized interpolation (GCR_SLIDER_INTERP_NORMALIZED)")
+        self.gcr_interp_normalized = QCheckBox(
+            "Normalized interpolation (GCR_SLIDER_INTERP_NORMALIZED)"
+        )
         self.gcr_interp_normalized.setChecked(True)
         self.gcr_max_points = ispin(val=300, mn=1)
         self.gcr_threshold = dspin(val=10000, dec=0, suffix="m")
@@ -320,7 +364,9 @@ class AlgorithmPage(QWizardPage):
         adv.addRow(self.gcr_dynamic_params)
         adv.addRow(opt_label("Land buffer", "GCR_SLIDER_LAND_BUFFER"), self.gcr_land_buffer)
         adv.addRow(self.gcr_interpolate)
-        adv.addRow(opt_label("Interpolation distance", "GCR_SLIDER_INTERP_DIST"), self.gcr_interp_dist)
+        adv.addRow(
+            opt_label("Interpolation distance", "GCR_SLIDER_INTERP_DIST"), self.gcr_interp_dist
+        )
         adv.addRow(self.gcr_interp_normalized)
         adv.addRow(opt_label("Max points", "GCR_SLIDER_MAX_POINTS"), self.gcr_max_points)
         adv.addRow(opt_label("Threshold", "GCR_SLIDER_THRESHOLD"), self.gcr_threshold)
@@ -360,9 +406,7 @@ class AlgorithmPage(QWizardPage):
         w = QWidget()
         v = QVBoxLayout(w)
         v.setContentsMargins(0, 0, 0, 0)
-        note = QLabel(
-            "Note: Experimental algorithm, not fully implemented."
-        )
+        note = QLabel("Note: Experimental algorithm, not fully implemented.")
         note.setTextFormat(Qt.RichText)
         note.setWordWrap(True)
         note.setStyleSheet(f"font-size: 12px; padding: 12px; color: {COLOR_MUTED};")
@@ -536,12 +580,23 @@ class AlgorithmPage(QWizardPage):
         self._on_algo_changed(self.algo_combo.currentIndex())
         # Isofuel
         self.iso_n_routes.setValue(int(c.get("ISOCHRONE_NUMBER_OF_ROUTES") or 1))
-        self.iso_min_crit.setCurrentIndex(self._find_combo_idx(self.iso_min_crit, c.get("ISOCHRONE_MINIMISATION_CRITERION", "squareddist_over_disttodest")))
+        self.iso_min_crit.setCurrentIndex(
+            self._find_combo_idx(
+                self.iso_min_crit,
+                c.get("ISOCHRONE_MINIMISATION_CRITERION", "squareddist_over_disttodest"),
+            )
+        )
         self.iso_max_steps.setValue(int(c.get("ISOCHRONE_MAX_ROUTING_STEPS") or 100))
-        self.iso_prune_groups.setCurrentIndex(self._find_combo_idx(self.iso_prune_groups, c.get("ISOCHRONE_PRUNE_GROUPS", "larger_direction")))
+        self.iso_prune_groups.setCurrentIndex(
+            self._find_combo_idx(
+                self.iso_prune_groups, c.get("ISOCHRONE_PRUNE_GROUPS", "larger_direction")
+            )
+        )
         self.iso_prune_half.setValue(int(c.get("ISOCHRONE_PRUNE_SECTOR_DEG_HALF") or 91))
         self.iso_prune_segs.setValue(int(c.get("ISOCHRONE_PRUNE_SEGMENTS") or 20))
-        self.iso_prune_sym.setCurrentIndex(self._find_combo_idx(self.iso_prune_sym, c.get("ISOCHRONE_PRUNE_SYMMETRY_AXIS", "gcr")))
+        self.iso_prune_sym.setCurrentIndex(
+            self._find_combo_idx(self.iso_prune_sym, c.get("ISOCHRONE_PRUNE_SYMMETRY_AXIS", "gcr"))
+        )
         # Genetic — restore the optimisation intent (infer for legacy configs).
         intent = c.get("_GENETIC_INTENT")
         if not intent:
@@ -578,15 +633,25 @@ class AlgorithmPage(QWizardPage):
         self.gen_offsprings.setValue(int(c.get("GENETIC_NUMBER_OFFSPRINGS") or 2))
         self.gen_pop_size.setValue(int(c.get("GENETIC_POPULATION_SIZE") or 20))
         self.gen_pop_type.blockSignals(True)
-        self.gen_pop_type.setCurrentIndex(self._find_combo_idx(self.gen_pop_type, c.get("GENETIC_POPULATION_TYPE", "isofuel")))
+        self.gen_pop_type.setCurrentIndex(
+            self._find_combo_idx(self.gen_pop_type, c.get("GENETIC_POPULATION_TYPE", "isofuel"))
+        )
         self.gen_pop_type.blockSignals(False)
         self.gen_pop_path.setText(c.get("GENETIC_POPULATION_PATH", ""))
-        self.gen_repair.setCurrentIndex(self._find_combo_idx(self.gen_repair, c.get("GENETIC_REPAIR_TYPE", "waypoints_infill")))
-        self.gen_crossover_patcher.setCurrentIndex(self._find_combo_idx(self.gen_crossover_patcher, c.get("GENETIC_CROSSOVER_PATCHER", "isofuel")))
+        self.gen_repair.setCurrentIndex(
+            self._find_combo_idx(self.gen_repair, c.get("GENETIC_REPAIR_TYPE", "waypoints_infill"))
+        )
+        self.gen_crossover_patcher.setCurrentIndex(
+            self._find_combo_idx(
+                self.gen_crossover_patcher, c.get("GENETIC_CROSSOVER_PATCHER", "isofuel")
+            )
+        )
         self.gen_fix_seed.setChecked(bool(c.get("GENETIC_FIX_RANDOM_SEED", False)))
         # Populate the mutation combo for the intent, then restore the saved value.
         self._refresh_genetic_visibility()
-        self.gen_mutation.setCurrentIndex(self._find_combo_idx(self.gen_mutation, c.get("GENETIC_MUTATION_TYPE", "random")))
+        self.gen_mutation.setCurrentIndex(
+            self._find_combo_idx(self.gen_mutation, c.get("GENETIC_MUTATION_TYPE", "random"))
+        )
         # GCR Slider
         self.gcr_angle_step.setValue(float(c.get("GCR_SLIDER_ANGLE_STEP") or 30))
         self.gcr_distance_move.setValue(float(c.get("GCR_SLIDER_DISTANCE_MOVE") or 10000))

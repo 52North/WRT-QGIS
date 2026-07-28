@@ -1,16 +1,39 @@
 """Page 3 — Boat configuration."""
-from qgis.PyQt.QtWidgets import (
-    QWizardPage, QVBoxLayout, QFormLayout, QLabel, QLineEdit,
-    QComboBox, QGroupBox, QPushButton,
-    QWidget, QScrollArea, QHBoxLayout, QStackedWidget, QFileDialog
-)
+
 from qgis.PyQt.QtCore import Qt
+from qgis.PyQt.QtWidgets import (
+    QComboBox,
+    QFileDialog,
+    QFormLayout,
+    QGroupBox,
+    QHBoxLayout,
+    QLabel,
+    QLineEdit,
+    QPushButton,
+    QScrollArea,
+    QStackedWidget,
+    QVBoxLayout,
+    QWidget,
+    QWizardPage,
+)
+
 from ..core.defaults import (
-    BOAT_TYPE_OPTIONS, ALGO_BOAT_COMPAT, ALGO_BOAT_COMPAT_DEFAULT,
+    ALGO_BOAT_COMPAT,
+    ALGO_BOAT_COMPAT_DEFAULT,
+    BOAT_TYPE_OPTIONS,
 )
 from ..ui.ui_kit import (
-    COLOR_MUTED, COLOR_WARNING, StatusLine, collapsible, dspin, field_label,
-    ispin, join_terms, opt_label, page_header, req_label,
+    COLOR_MUTED,
+    COLOR_WARNING,
+    StatusLine,
+    collapsible,
+    dspin,
+    field_label,
+    ispin,
+    join_terms,
+    opt_label,
+    page_header,
+    req_label,
 )
 
 _BOAT_TYPE_LABELS = dict(BOAT_TYPE_OPTIONS)
@@ -30,21 +53,49 @@ def _compatible_boat_types(algo):
 
 # Every boat-related config key — cleared on save so only the active method contributes to the exported JSON.
 BOAT_ALL_KEYS = [
-    "BOAT_LENGTH", "BOAT_BREADTH", "BOAT_TYPE", "BOAT_SPEED", "BOAT_FUEL_RATE",
-    "BOAT_HBR", "BOAT_SMCR_POWER", "BOAT_SMCR_SPEED",
-    "BOAT_ROUGHNESS_DISTRIBUTION_LEVEL", "BOAT_ROUGHNESS_LEVEL",
-    "BOAT_DRAUGHT_AFT", "BOAT_DRAUGHT_FORE", "BOAT_UNDER_KEEL_CLEARANCE",
-    "BOAT_OVERLOAD_FACTOR", "BOAT_PROPULSION_EFFICIENCY", "BOAT_SPEED_MAX",
-    "BOAT_AOD", "BOAT_AXV", "BOAT_AYV", "BOAT_CMC", "BOAT_HC",
-    "BOAT_BS1", "BOAT_HS1", "BOAT_HS2", "BOAT_LS1", "BOAT_LS2",
-    "BOAT_FACTOR_CALM_WATER", "BOAT_FACTOR_WAVE_FORCES", "BOAT_FACTOR_WIND_FORCES",
-    "AIR_MASS_DENSITY", "COURSES_FILE",
+    "BOAT_LENGTH",
+    "BOAT_BREADTH",
+    "BOAT_TYPE",
+    "BOAT_SPEED",
+    "BOAT_FUEL_RATE",
+    "BOAT_HBR",
+    "BOAT_SMCR_POWER",
+    "BOAT_SMCR_SPEED",
+    "BOAT_ROUGHNESS_DISTRIBUTION_LEVEL",
+    "BOAT_ROUGHNESS_LEVEL",
+    "BOAT_DRAUGHT_AFT",
+    "BOAT_DRAUGHT_FORE",
+    "BOAT_UNDER_KEEL_CLEARANCE",
+    "BOAT_OVERLOAD_FACTOR",
+    "BOAT_PROPULSION_EFFICIENCY",
+    "BOAT_SPEED_MAX",
+    "BOAT_AOD",
+    "BOAT_AXV",
+    "BOAT_AYV",
+    "BOAT_CMC",
+    "BOAT_HC",
+    "BOAT_BS1",
+    "BOAT_HS1",
+    "BOAT_HS2",
+    "BOAT_LS1",
+    "BOAT_LS2",
+    "BOAT_FACTOR_CALM_WATER",
+    "BOAT_FACTOR_WAVE_FORCES",
+    "BOAT_FACTOR_WIND_FORCES",
+    "AIR_MASS_DENSITY",
+    "COURSES_FILE",
 ]
 
 ADV_KEYS = [
-    ("dp_aod", "BOAT_AOD"), ("dp_axv", "BOAT_AXV"), ("dp_ayv", "BOAT_AYV"),
-    ("dp_cmc", "BOAT_CMC"), ("dp_hc", "BOAT_HC"), ("dp_bs1", "BOAT_BS1"),
-    ("dp_hs1", "BOAT_HS1"), ("dp_hs2", "BOAT_HS2"), ("dp_ls1", "BOAT_LS1"),
+    ("dp_aod", "BOAT_AOD"),
+    ("dp_axv", "BOAT_AXV"),
+    ("dp_ayv", "BOAT_AYV"),
+    ("dp_cmc", "BOAT_CMC"),
+    ("dp_hc", "BOAT_HC"),
+    ("dp_bs1", "BOAT_BS1"),
+    ("dp_hs1", "BOAT_HS1"),
+    ("dp_hs2", "BOAT_HS2"),
+    ("dp_ls1", "BOAT_LS1"),
     ("dp_ls2", "BOAT_LS2"),
 ]
 
@@ -80,11 +131,13 @@ class BoatPage(QWizardPage):
         outer.addWidget(status_wrap)
         self.completeChanged.connect(self._update_status)
 
-        root.addWidget(page_header(
-            "Boat configuration",
-            "Choose the boat type, then set the parameters for that method. "
-            "Fields marked * are required.",
-        ))
+        root.addWidget(
+            page_header(
+                "Boat configuration",
+                "Choose the boat type, then set the parameters for that method. "
+                "Fields marked * are required.",
+            )
+        )
 
         # Boat type
         root.addWidget(field_label("Boat type", required=True))
@@ -112,9 +165,9 @@ class BoatPage(QWizardPage):
 
         # Per-type parameter stack
         self.stack = QStackedWidget()
-        self.stack.addWidget(self._build_direct_power_panel())   # 0
-        self.stack.addWidget(self._build_cbt_panel())            # 1
-        self.stack.addWidget(self._build_speedy_panel())         # 2
+        self.stack.addWidget(self._build_direct_power_panel())  # 0
+        self.stack.addWidget(self._build_cbt_panel())  # 1
+        self.stack.addWidget(self._build_speedy_panel())  # 2
         root.addWidget(self.stack)
 
         root.addStretch()
@@ -138,13 +191,23 @@ class BoatPage(QWizardPage):
         setattr(self, f"{prefix}_factor_wave", dspin(val=1.0, dec=3))
         setattr(self, f"{prefix}_factor_wind", dspin(val=1.0, dec=3))
 
-        form.addRow(opt_label("Draught aft", "Draught at rudder"), getattr(self, f"{prefix}_draught_aft"))
-        form.addRow(opt_label("Draught fore", "Draught at forward perpendicular"), getattr(self, f"{prefix}_draught_fore"))
-        form.addRow(opt_label("Roughness distribution level"), getattr(self, f"{prefix}_roughness_dist"))
+        form.addRow(
+            opt_label("Draught aft", "Draught at rudder"), getattr(self, f"{prefix}_draught_aft")
+        )
+        form.addRow(
+            opt_label("Draught fore", "Draught at forward perpendicular"),
+            getattr(self, f"{prefix}_draught_fore"),
+        )
+        form.addRow(
+            opt_label("Roughness distribution level"), getattr(self, f"{prefix}_roughness_dist")
+        )
         form.addRow(opt_label("Roughness level"), getattr(self, f"{prefix}_roughness_lvl"))
         form.addRow(opt_label("Under-keel clearance"), getattr(self, f"{prefix}_under_keel"))
         form.addRow(opt_label("Overload factor"), getattr(self, f"{prefix}_overload"))
-        form.addRow(opt_label("Propulsion efficiency", "Ideal conditions coefficient"), getattr(self, f"{prefix}_prop_eff"))
+        form.addRow(
+            opt_label("Propulsion efficiency", "Ideal conditions coefficient"),
+            getattr(self, f"{prefix}_prop_eff"),
+        )
         form.addRow(opt_label("Factor — calm water"), getattr(self, f"{prefix}_factor_calm"))
         form.addRow(opt_label("Factor — wave forces"), getattr(self, f"{prefix}_factor_wave"))
         form.addRow(opt_label("Factor — wind forces"), getattr(self, f"{prefix}_factor_wind"))
@@ -166,7 +229,14 @@ class BoatPage(QWizardPage):
         self.dp_smcr_speed = dspin(dec=3, suffix="m/s")
         self.dp_fuel_rate = dspin(suffix="g/kWh", mx=9999)
         self.dp_hbr = dspin(suffix="m")
-        for x in (self.dp_length, self.dp_breadth, self.dp_smcr_power, self.dp_smcr_speed, self.dp_fuel_rate, self.dp_hbr):
+        for x in (
+            self.dp_length,
+            self.dp_breadth,
+            self.dp_smcr_power,
+            self.dp_smcr_speed,
+            self.dp_fuel_rate,
+            self.dp_hbr,
+        ):
             x.valueChanged.connect(self.completeChanged)
         form.addRow(req_label("Length overall"), self.dp_length)
         form.addRow(req_label("Breadth"), self.dp_breadth)
@@ -254,7 +324,13 @@ class BoatPage(QWizardPage):
         courses_row = QHBoxLayout()
         courses_row.addWidget(self.cbt_courses)
         courses_row.addWidget(browse)
-        for x in (self.cbt_length, self.cbt_breadth, self.cbt_smcr_power, self.cbt_smcr_speed, self.cbt_fuel_rate):
+        for x in (
+            self.cbt_length,
+            self.cbt_breadth,
+            self.cbt_smcr_power,
+            self.cbt_smcr_speed,
+            self.cbt_fuel_rate,
+        ):
             x.valueChanged.connect(self.completeChanged)
         form.addRow(req_label("Length overall"), self.cbt_length)
         form.addRow(req_label("Breadth"), self.cbt_breadth)
@@ -328,19 +404,31 @@ class BoatPage(QWizardPage):
         if bt == "speedy_isobased":
             return missing
         if bt == "direct_power_method":
-            if self.dp_length.value() <= 0: missing.append("length")
-            if self.dp_breadth.value() <= 0: missing.append("breadth")
-            if self.dp_smcr_power.value() <= 0: missing.append("SMCR power")
-            if self.dp_smcr_speed.value() <= 0: missing.append("speed at SMCR")
-            if self.dp_fuel_rate.value() <= 0: missing.append("fuel rate")
-            if self.dp_hbr.value() <= 0: missing.append("max height (HBR)")
+            if self.dp_length.value() <= 0:
+                missing.append("length")
+            if self.dp_breadth.value() <= 0:
+                missing.append("breadth")
+            if self.dp_smcr_power.value() <= 0:
+                missing.append("SMCR power")
+            if self.dp_smcr_speed.value() <= 0:
+                missing.append("speed at SMCR")
+            if self.dp_fuel_rate.value() <= 0:
+                missing.append("fuel rate")
+            if self.dp_hbr.value() <= 0:
+                missing.append("max height (HBR)")
         elif bt == "CBT":
-            if self.cbt_length.value() <= 0: missing.append("length")
-            if self.cbt_breadth.value() <= 0: missing.append("breadth")
-            if self.cbt_smcr_power.value() <= 0: missing.append("SMCR power")
-            if self.cbt_smcr_speed.value() <= 0: missing.append("speed at SMCR")
-            if self.cbt_fuel_rate.value() <= 0: missing.append("fuel rate")
-            if not self.cbt_courses.text().strip(): missing.append("courses file")
+            if self.cbt_length.value() <= 0:
+                missing.append("length")
+            if self.cbt_breadth.value() <= 0:
+                missing.append("breadth")
+            if self.cbt_smcr_power.value() <= 0:
+                missing.append("SMCR power")
+            if self.cbt_smcr_speed.value() <= 0:
+                missing.append("speed at SMCR")
+            if self.cbt_fuel_rate.value() <= 0:
+                missing.append("fuel rate")
+            if not self.cbt_courses.text().strip():
+                missing.append("courses file")
         return missing
 
     def _update_status(self):
@@ -359,13 +447,23 @@ class BoatPage(QWizardPage):
         if bt == "speedy_isobased":
             return True
         if bt == "direct_power_method":
-            return (self.dp_length.value() > 0 and self.dp_breadth.value() > 0 and
-                    self.dp_smcr_power.value() > 0 and self.dp_smcr_speed.value() > 0 and
-                    self.dp_fuel_rate.value() > 0 and self.dp_hbr.value() > 0)
+            return (
+                self.dp_length.value() > 0
+                and self.dp_breadth.value() > 0
+                and self.dp_smcr_power.value() > 0
+                and self.dp_smcr_speed.value() > 0
+                and self.dp_fuel_rate.value() > 0
+                and self.dp_hbr.value() > 0
+            )
         if bt == "CBT":
-            return (self.cbt_length.value() > 0 and self.cbt_breadth.value() > 0 and
-                    self.cbt_smcr_power.value() > 0 and self.cbt_smcr_speed.value() > 0 and
-                    self.cbt_fuel_rate.value() > 0 and bool(self.cbt_courses.text().strip()))
+            return (
+                self.cbt_length.value() > 0
+                and self.cbt_breadth.value() > 0
+                and self.cbt_smcr_power.value() > 0
+                and self.cbt_smcr_speed.value() > 0
+                and self.cbt_fuel_rate.value() > 0
+                and bool(self.cbt_courses.text().strip())
+            )
         return True
 
     # Config persistence

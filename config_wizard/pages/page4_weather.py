@@ -1,20 +1,43 @@
 """Page 4 — Weather & depth datasets"""
+
 import os
 from datetime import datetime
 
-from qgis.PyQt.QtWidgets import (
-    QWizardPage, QVBoxLayout, QFormLayout, QLabel, QLineEdit,
-    QPushButton, QGroupBox, QSpinBox, QHBoxLayout,
-    QFileDialog, QFrame, QStyle, QScrollArea, QWidget, QProgressBar
-)
-from qgis.PyQt.QtCore import Qt
 from qgis.core import QgsApplication
+from qgis.PyQt.QtCore import Qt
+from qgis.PyQt.QtWidgets import (
+    QFileDialog,
+    QFormLayout,
+    QFrame,
+    QGroupBox,
+    QHBoxLayout,
+    QLabel,
+    QLineEdit,
+    QProgressBar,
+    QPushButton,
+    QScrollArea,
+    QSpinBox,
+    QStyle,
+    QVBoxLayout,
+    QWidget,
+    QWizardPage,
+)
 
 from ..core.netcdf_validation import InspectNetcdfTask, check_coverage
 from ..ui.ui_kit import (
-    COLOR_BORDER, COLOR_FILE_ERROR, COLOR_FILE_OK, COLOR_INPUT_BORDER,
-    COLOR_MUTED, COLOR_PRIMARY, COLOR_PRIMARY_SOFT, COLOR_REQUIRED,
-    COLOR_SIDEBAR_BG, COLOR_TEXT, COLOR_WARNING, StatusLine, opt_label,
+    COLOR_BORDER,
+    COLOR_FILE_ERROR,
+    COLOR_FILE_OK,
+    COLOR_INPUT_BORDER,
+    COLOR_MUTED,
+    COLOR_PRIMARY,
+    COLOR_PRIMARY_SOFT,
+    COLOR_REQUIRED,
+    COLOR_SIDEBAR_BG,
+    COLOR_TEXT,
+    COLOR_WARNING,
+    StatusLine,
+    opt_label,
     page_header,
 )
 
@@ -30,12 +53,14 @@ BADGE_BG_REQUIRED = "#fbe7e8"
 # UI helpers
 class FileField(QFrame):
     """A dataset card: a prominent drag-and-drop zone over a Browse/Clear row"""
-    def __init__(self, title, placeholder, file_filter="NetCDF (*.nc)",
-                 optional=False, parent=None):
+
+    def __init__(
+        self, title, placeholder, file_filter="NetCDF (*.nc)", optional=False, parent=None
+    ):
         super().__init__(parent)
         self._filter = file_filter
         self._optional = optional
-        self._last = (None, "", False)   # last (state, message, warn) for repaint
+        self._last = (None, "", False)  # last (state, message, warn) for repaint
 
         self.setObjectName("DatasetCard")
         self.setStyleSheet(
@@ -51,9 +76,7 @@ class FileField(QFrame):
         icon = QLabel()
         icon.setPixmap(self.style().standardIcon(QStyle.SP_DirIcon).pixmap(18, 18))
         title_lbl = QLabel(title)
-        title_lbl.setStyleSheet(
-            f"font-size: 13px; font-weight: 600; color: {COLOR_TEXT};"
-        )
+        title_lbl.setStyleSheet(f"font-size: 13px; font-weight: 600; color: {COLOR_TEXT};")
         self.badge = QLabel()
         self.badge.setAlignment(Qt.AlignCenter)
         header.addWidget(icon)
@@ -109,27 +132,25 @@ class FileField(QFrame):
         self.path_edit = QLineEdit()
         self.path_edit.setPlaceholderText(placeholder)
         self.path_edit.setReadOnly(True)
-        self.path_edit.setStyleSheet(
-            f"background: {COLOR_SIDEBAR_BG}; color: {COLOR_MUTED};"
-        )
+        self.path_edit.setStyleSheet(f"background: {COLOR_SIDEBAR_BG}; color: {COLOR_MUTED};")
         # Let file drops fall through to the card instead of the line edit
         # inserting the raw "file://…" URL as text.
         self.path_edit.setAcceptDrops(False)
         self.clear_btn = QPushButton("Clear")
         self.clear_btn.clicked.connect(self.path_edit.clear)
         self.clear_btn.setEnabled(False)
-        self.path_edit.textChanged.connect(
-            lambda t: self.clear_btn.setEnabled(bool(t))
-        )
+        self.path_edit.textChanged.connect(lambda t: self.clear_btn.setEnabled(bool(t)))
         path_row.addWidget(self.path_edit)
         path_row.addWidget(self.clear_btn)
         layout.addLayout(path_row)
 
         self.setAcceptDrops(True)
-        self.set_state(None)   # render the empty state
+        self.set_state(None)  # render the empty state
 
     def _browse(self):
-        path, _ = QFileDialog.getOpenFileName(self, "Select file", self.path_edit.text(), self._filter)
+        path, _ = QFileDialog.getOpenFileName(
+            self, "Select file", self.path_edit.text(), self._filter
+        )
         if path:
             self.path_edit.setText(path)
 
@@ -152,8 +173,7 @@ class FileField(QFrame):
         self._set_badge("checking", COLOR_MUTED, BADGE_BG_OPTIONAL)
         self._paint_zone(COLOR_PRIMARY, ZONE_BG_NEUTRAL)
         self.zone_primary.setText(f"Validating {name}…")
-        self.zone_primary.setStyleSheet(
-            f"color: {COLOR_TEXT}; font-size: 13px; font-weight: 600;")
+        self.zone_primary.setStyleSheet(f"color: {COLOR_TEXT}; font-size: 13px; font-weight: 600;")
         self.zone_secondary.setText("")
         self.zone_secondary.setVisible(False)
         self.zone_progress.setVisible(True)
@@ -164,8 +184,11 @@ class FileField(QFrame):
         self.zone_progress.setVisible(False)
         path = self.path_edit.text().strip()
         name = os.path.basename(path) if path else ""
-        size = (f"{os.path.getsize(path) / (1024 * 1024):.0f} MB"
-                if path and os.path.isfile(path) else "")
+        size = (
+            f"{os.path.getsize(path) / (1024 * 1024):.0f} MB"
+            if path and os.path.isfile(path)
+            else ""
+        )
 
         if state is True:
             color = COLOR_WARNING if warn else COLOR_FILE_OK
@@ -173,8 +196,7 @@ class FileField(QFrame):
             self._set_badge("warning" if warn else "valid", color, bg)
             self._paint_zone(color, bg)
             self.zone_primary.setText(name)
-            self.zone_primary.setStyleSheet(
-                f"color: {color}; font-size: 13px; font-weight: 700;")
+            self.zone_primary.setStyleSheet(f"color: {color}; font-size: 13px; font-weight: 700;")
             detail = " · ".join(p for p in ("NetCDF", size, message, "drop to replace") if p)
             self.zone_secondary.setText(detail)
             self.zone_secondary.setStyleSheet(f"color: {COLOR_MUTED}; font-size: 11px;")
@@ -183,10 +205,11 @@ class FileField(QFrame):
             self._paint_zone(COLOR_FILE_ERROR, ZONE_BG_ERR)
             self.zone_primary.setText(name or "Invalid file")
             self.zone_primary.setStyleSheet(
-                f"color: {COLOR_FILE_ERROR}; font-size: 13px; font-weight: 700;")
+                f"color: {COLOR_FILE_ERROR}; font-size: 13px; font-weight: 700;"
+            )
             self.zone_secondary.setText(message or "File could not be validated")
             self.zone_secondary.setStyleSheet(f"color: {COLOR_FILE_ERROR}; font-size: 11px;")
-        else:   # no path
+        else:  # no path
             if self._optional:
                 self._set_badge("optional", COLOR_MUTED, BADGE_BG_OPTIONAL)
             else:
@@ -194,7 +217,8 @@ class FileField(QFrame):
             self._paint_zone(COLOR_BORDER, ZONE_BG_NEUTRAL)
             self.zone_primary.setText("Click to browse or drag & drop")
             self.zone_primary.setStyleSheet(
-                f"color: {COLOR_TEXT}; font-size: 13px; font-weight: 600;")
+                f"color: {COLOR_TEXT}; font-size: 13px; font-weight: 600;"
+            )
             self.zone_secondary.setText("")
             self.zone_secondary.setStyleSheet(f"color: {COLOR_MUTED}; font-size: 11px;")
 
@@ -222,12 +246,12 @@ class FileField(QFrame):
             event.ignore()
 
     def dragLeaveEvent(self, event):
-        self.set_state(*self._last)   # restore the pre-drag rendering
+        self.set_state(*self._last)  # restore the pre-drag rendering
 
     def dropEvent(self, event):
         path = self._drop_path(event)
         if path:
-            self.path_edit.setText(path)   # fires validation → repaints the zone
+            self.path_edit.setText(path)  # fires validation → repaints the zone
             event.acceptProposedAction()
         else:
             self.set_state(*self._last)
@@ -243,13 +267,13 @@ class WeatherPage(QWizardPage):
     def __init__(self, config, parent=None):
         super().__init__(parent)
         self.config = config
-        self._weather_valid = None   # None=no path, False=invalid, True=valid
+        self._weather_valid = None  # None=no path, False=invalid, True=valid
         self._depth_valid = None
         self._weather_loading = False
         self._depth_loading = False
-        self._tasks = {}         # field -> in-flight InspectNetcdfTask
-        self._info = {}          # kind -> last inspect_netcdf() result (or None)
-        self._info_path = {}     # kind -> path that _info was computed for
+        self._tasks = {}  # field -> in-flight InspectNetcdfTask
+        self._info = {}  # kind -> last inspect_netcdf() result (or None)
+        self._info_path = {}  # kind -> path that _info was computed for
         self.status = None
         self._build_ui()
 
@@ -268,16 +292,15 @@ class WeatherPage(QWizardPage):
         outer.setContentsMargins(0, 0, 0, 0)
         outer.addWidget(scroll)
 
-        root.addWidget(page_header(
-            "Weather & depth datasets",
-            "Upload weather and bathymetry NetCDF files. "
-            "Files are validated against your route before you proceed.",
-        ))
-
-        self.weather_field = FileField(
-            "Weather data",
-            "/path/to/weather.nc"
+        root.addWidget(
+            page_header(
+                "Weather & depth datasets",
+                "Upload weather and bathymetry NetCDF files. "
+                "Files are validated against your route before you proceed.",
+            )
         )
+
+        self.weather_field = FileField("Weather data", "/path/to/weather.nc")
         self.weather_field.path_edit.textChanged.connect(self._on_weather_changed)
         root.addWidget(self.weather_field)
 
@@ -308,7 +331,9 @@ class WeatherPage(QWizardPage):
         # Re-check time coverage when the forecast horizon changes
         self.time_forecast.valueChanged.connect(self._on_forecast_changed)
 
-        time_form.addRow(opt_label("Forecast time resolution", "DELTA_TIME_FORECAST"), self.delta_time)
+        time_form.addRow(
+            opt_label("Forecast time resolution", "DELTA_TIME_FORECAST"), self.delta_time
+        )
         time_form.addRow(opt_label("Forecast horizon", "TIME_FORECAST"), self.time_forecast)
         root.addWidget(time_box)
 
@@ -353,7 +378,7 @@ class WeatherPage(QWizardPage):
             return val
         if isinstance(val, str):
             try:
-                return datetime.strptime(val, '%Y-%m-%dT%H:%MZ')
+                return datetime.strptime(val, "%Y-%m-%dT%H:%MZ")
             except ValueError:
                 return None
         return None
@@ -407,24 +432,25 @@ class WeatherPage(QWizardPage):
         field.set_loading(os.path.basename(path))
         task = InspectNetcdfTask(path)
         task.done.connect(
-            lambda info, err, t=task:
-            self._on_inspect_done(field, kind, path, require_time, t, info, err)
+            lambda info, err, t=task: self._on_inspect_done(
+                field, kind, path, require_time, t, info, err
+            )
         )
         self._tasks[field] = task
         mgr = QgsApplication.taskManager()
         if mgr is not None:
             mgr.addTask(task)
-        else:   # no task manager (e.g. outside QGIS) — run inline as a fallback
+        else:  # no task manager (e.g. outside QGIS) — run inline as a fallback
             task.run()
             task.done.emit(task.info, task.error)
 
     def _on_inspect_done(self, field, kind, path, require_time, task, info, error):
         """Main-thread completion handler for an InspectNetcdfTask."""
         if self._tasks.get(field) is not task:
-            return   # superseded by a newer inspection
+            return  # superseded by a newer inspection
         self._tasks.pop(field, None)
         if field.text().strip() != path:
-            return   # the path changed while we were inspecting
+            return  # the path changed while we were inspecting
         self._set_loading(kind, False)
         if error is not None:
             self._forget_info(kind)
@@ -440,7 +466,7 @@ class WeatherPage(QWizardPage):
         inspection so a spinbox tick never re-opens the file or spawns a task."""
         path = self.weather_field.text().strip()
         if not path or self._weather_loading:
-            return   # nothing loaded, or an in-flight load will use the new value
+            return  # nothing loaded, or an in-flight load will use the new value
         if self._info_path.get("weather") == path and self._info.get("weather"):
             state, msg, warn = self._check_coverage(self._info["weather"], True)
             self._apply_result(self.weather_field, "weather", state, msg, warn)
@@ -483,7 +509,9 @@ class WeatherPage(QWizardPage):
         if self._weather_valid is not True:
             self.status.set_pending("Provide valid weather data to continue")
         else:
-            self.status.set_pending("Bathymetry file provided but invalid — fix or clear it to continue")
+            self.status.set_pending(
+                "Bathymetry file provided but invalid — fix or clear it to continue"
+            )
 
     def _on_weather_changed(self, text):
         self._validate_weather(text.strip())

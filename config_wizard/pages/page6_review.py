@@ -1,54 +1,107 @@
 """Page 6 — Review & export: JSON preview and save-to-file."""
+
 import json
 import os
-from qgis.PyQt.QtWidgets import (
-    QWizardPage, QVBoxLayout, QLabel, QTextEdit, QPushButton,
-    QHBoxLayout, QFileDialog, QMessageBox, QGroupBox
-)
-from qgis.PyQt.QtGui import QFont
+
 from qgis.PyQt.QtCore import Qt
+from qgis.PyQt.QtGui import QFont
+from qgis.PyQt.QtWidgets import (
+    QFileDialog,
+    QGroupBox,
+    QHBoxLayout,
+    QLabel,
+    QMessageBox,
+    QPushButton,
+    QTextEdit,
+    QVBoxLayout,
+    QWizardPage,
+)
+
 from ..core.defaults import INTERNAL_KEYS
 from ..ui.ui_kit import StatusLine, join_terms, page_header
 
 # Keys from WRT config.py valid for all algorithms.
-_UNIVERSAL_KEYS = frozenset({
-    "ALGORITHM_TYPE", "ARRIVAL_TIME", "BOAT_TYPE", "BOAT_SPEED",
-    "BOAT_SPEED_BOUNDARIES", "CONSTRAINTS_LIST", "DEFAULT_MAP", "DEFAULT_ROUTE",
-    "DELTA_FUEL", "DELTA_TIME_FORECAST", "DEPARTURE_TIME", "INTERMEDIATE_WAYPOINTS",
-    "ROUTER_HDGS_INCREMENTS_DEG", "ROUTER_HDGS_SEGMENTS", "ROUTE_PATH",
-    "ROUTE_POSTPROCESSING", "ROUTING_STEPS", "TIME_FORECAST",
-    "COURSES_FILE", "DEPTH_DATA", "WEATHER_DATA",
-})
+_UNIVERSAL_KEYS = frozenset(
+    {
+        "ALGORITHM_TYPE",
+        "ARRIVAL_TIME",
+        "BOAT_TYPE",
+        "BOAT_SPEED",
+        "BOAT_SPEED_BOUNDARIES",
+        "CONSTRAINTS_LIST",
+        "DEFAULT_MAP",
+        "DEFAULT_ROUTE",
+        "DELTA_FUEL",
+        "DELTA_TIME_FORECAST",
+        "DEPARTURE_TIME",
+        "INTERMEDIATE_WAYPOINTS",
+        "ROUTER_HDGS_INCREMENTS_DEG",
+        "ROUTER_HDGS_SEGMENTS",
+        "ROUTE_PATH",
+        "ROUTE_POSTPROCESSING",
+        "ROUTING_STEPS",
+        "TIME_FORECAST",
+        "COURSES_FILE",
+        "DEPTH_DATA",
+        "WEATHER_DATA",
+    }
+)
 
 # Extra keys only meaningful for a specific algorithm.
 _ALGO_KEYS = {
-    "dijkstra": frozenset({
-        "DIJKSTRA_MASK_FILE", "DIJKSTRA_NOF_NEIGHBORS", "DIJKSTRA_STEP",
-    }),
-    "gcr_slider": frozenset({
-        "GCR_SLIDER_ANGLE_STEP", "GCR_SLIDER_DISTANCE_MOVE",
-        "GCR_SLIDER_DYNAMIC_PARAMETERS", "GCR_SLIDER_INTERPOLATE",
-        "GCR_SLIDER_INTERP_DIST", "GCR_SLIDER_INTERP_NORMALIZED",
-        "GCR_SLIDER_LAND_BUFFER", "GCR_SLIDER_MAX_POINTS", "GCR_SLIDER_THRESHOLD",
-    }),
-    "genetic": frozenset({
-        "GENETIC_CROSSOVER_PATCHER", "GENETIC_CROSSOVER_TYPE", "GENETIC_FIX_RANDOM_SEED",
-        "GENETIC_MUTATION_TYPE", "GENETIC_NUMBER_GENERATIONS", "GENETIC_NUMBER_OFFSPRINGS",
-        "GENETIC_OBJECTIVES", "GENETIC_POPULATION_PATH", "GENETIC_POPULATION_SIZE",
-        "GENETIC_POPULATION_TYPE", "GENETIC_REPAIR_TYPE",
-    }),
-    "isofuel": frozenset({
-        "ISOCHRONE_MAX_ROUTING_STEPS", "ISOCHRONE_MINIMISATION_CRITERION",
-        "ISOCHRONE_NUMBER_OF_ROUTES", "ISOCHRONE_PRUNE_GROUPS",
-        "ISOCHRONE_PRUNE_SECTOR_DEG_HALF", "ISOCHRONE_PRUNE_SEGMENTS",
-        "ISOCHRONE_PRUNE_SYMMETRY_AXIS",
-    }),
+    "dijkstra": frozenset(
+        {
+            "DIJKSTRA_MASK_FILE",
+            "DIJKSTRA_NOF_NEIGHBORS",
+            "DIJKSTRA_STEP",
+        }
+    ),
+    "gcr_slider": frozenset(
+        {
+            "GCR_SLIDER_ANGLE_STEP",
+            "GCR_SLIDER_DISTANCE_MOVE",
+            "GCR_SLIDER_DYNAMIC_PARAMETERS",
+            "GCR_SLIDER_INTERPOLATE",
+            "GCR_SLIDER_INTERP_DIST",
+            "GCR_SLIDER_INTERP_NORMALIZED",
+            "GCR_SLIDER_LAND_BUFFER",
+            "GCR_SLIDER_MAX_POINTS",
+            "GCR_SLIDER_THRESHOLD",
+        }
+    ),
+    "genetic": frozenset(
+        {
+            "GENETIC_CROSSOVER_PATCHER",
+            "GENETIC_CROSSOVER_TYPE",
+            "GENETIC_FIX_RANDOM_SEED",
+            "GENETIC_MUTATION_TYPE",
+            "GENETIC_NUMBER_GENERATIONS",
+            "GENETIC_NUMBER_OFFSPRINGS",
+            "GENETIC_OBJECTIVES",
+            "GENETIC_POPULATION_PATH",
+            "GENETIC_POPULATION_SIZE",
+            "GENETIC_POPULATION_TYPE",
+            "GENETIC_REPAIR_TYPE",
+        }
+    ),
+    "isofuel": frozenset(
+        {
+            "ISOCHRONE_MAX_ROUTING_STEPS",
+            "ISOCHRONE_MINIMISATION_CRITERION",
+            "ISOCHRONE_NUMBER_OF_ROUTES",
+            "ISOCHRONE_PRUNE_GROUPS",
+            "ISOCHRONE_PRUNE_SECTOR_DEG_HALF",
+            "ISOCHRONE_PRUNE_SEGMENTS",
+            "ISOCHRONE_PRUNE_SYMMETRY_AXIS",
+        }
+    ),
 }
 _ALGO_KEYS["genetic_shortest_route"] = _ALGO_KEYS["genetic"]
 _ALGO_KEYS["speedy_isobased"] = _ALGO_KEYS["isofuel"]
 
 # These algorithms have no weather/depth data pipeline.
 _NO_WEATHER_ALGOS = frozenset({"dijkstra", "gcr_slider"})
+
 
 def _build_export(config):
     """Build the WRT-compatible config dict, containing only keys known to config.py."""
@@ -93,7 +146,7 @@ class ReviewPage(QWizardPage):
     def __init__(self, config, pages, parent=None):
         super().__init__(parent)
         self.config = config
-        self.pages = pages   # list of page objects with save_to_config()
+        self.pages = pages  # list of page objects with save_to_config()
         self._build_ui()
 
     def _build_ui(self):
@@ -101,11 +154,13 @@ class ReviewPage(QWizardPage):
         root.setContentsMargins(28, 22, 28, 18)
         root.setSpacing(12)
 
-        root.addWidget(page_header(
-            "Review & export",
-            "Review the generated configuration below. "
-            "Copy it or save it to a JSON file to use with the WRT CLI.",
-        ))
+        root.addWidget(
+            page_header(
+                "Review & export",
+                "Review the generated configuration below. "
+                "Copy it or save it to a JSON file to use with the WRT CLI.",
+            )
+        )
 
         # Summary labels
         self.summary_lbl = QLabel()
@@ -134,7 +189,7 @@ class ReviewPage(QWizardPage):
         save_btn.setDefault(True)
         cli_lbl = QLabel(
             '<span style="color:gray;font-size:11px;">CLI usage: '
-            '<tt>python3 WeatherRoutingTool/cli.py -f /path/to/config.json</tt></span>'
+            "<tt>python3 WeatherRoutingTool/cli.py -f /path/to/config.json</tt></span>"
         )
         cli_lbl.setTextFormat(Qt.RichText)
         btn_row.addWidget(copy_btn)
@@ -147,14 +202,18 @@ class ReviewPage(QWizardPage):
         root.addWidget(self.status)
 
     STEP_NAMES = [
-        "Route", "Algorithm", "Boat Details",
-        "Weather & depth", "Constraints",
+        "Route",
+        "Algorithm",
+        "Boat Details",
+        "Weather & depth",
+        "Constraints",
     ]
 
     def _update_status(self):
         assert len(self.pages) == len(self.STEP_NAMES), "page/name list mismatch"
         incomplete = [
-            name for page, name in zip(self.pages, self.STEP_NAMES)
+            name
+            for page, name in zip(self.pages, self.STEP_NAMES, strict=True)
             if hasattr(page, "isComplete") and not page.isComplete()
         ]
         if incomplete:
@@ -193,6 +252,7 @@ class ReviewPage(QWizardPage):
 
     def _copy(self):
         from qgis.PyQt.QtWidgets import QApplication
+
         QApplication.clipboard().setText(self._get_json())
         QMessageBox.information(self, "Copied", "Configuration JSON copied to clipboard.")
 
@@ -208,9 +268,10 @@ class ReviewPage(QWizardPage):
             with open(path, "w", encoding="utf-8") as f:
                 f.write(self._get_json())
             QMessageBox.information(
-                self, "Saved",
+                self,
+                "Saved",
                 f"Configuration saved to:\n{path}\n\n"
-                f"Run with:\npython3 WeatherRoutingTool/cli.py -f {path}"
+                f"Run with:\npython3 WeatherRoutingTool/cli.py -f {path}",
             )
         except json.JSONDecodeError as e:
             QMessageBox.critical(self, "Invalid JSON", f"The JSON is invalid:\n{e}")

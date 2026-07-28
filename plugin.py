@@ -1,8 +1,11 @@
 import os
+
+from qgis.PyQt.QtGui import QCursor, QIcon
 from qgis.PyQt.QtWidgets import QAction, QMenu
-from qgis.PyQt.QtGui import QIcon, QCursor
+
 from .config_wizard.ui.wizard import WRTConfigWindow
 from .utils import ensure_openstreetmap_layer
+
 
 class WRTPlugin:
     def __init__(self, iface):

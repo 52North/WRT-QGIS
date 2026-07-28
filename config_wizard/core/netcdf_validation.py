@@ -5,18 +5,32 @@ reads its spatial extent and CF time axis, and checks whether that coverage
 contains the route's map bounds and forecast period. ``InspectNetcdfTask`` wraps
 the heavy ``inspect_netcdf`` call so it can run off the UI thread.
 """
+
 import re
 from datetime import datetime, timedelta
 
-from qgis.PyQt.QtCore import pyqtSignal
-from qgis.core import QgsTask
 from osgeo import gdal, osr
+from qgis.core import QgsTask
+from qgis.PyQt.QtCore import pyqtSignal
 
 UNIT_SECONDS = {
-    "seconds": 1, "second": 1, "secs": 1, "sec": 1, "s": 1,
-    "minutes": 60, "minute": 60, "mins": 60, "min": 60,
-    "hours": 3600, "hour": 3600, "hrs": 3600, "hr": 3600, "h": 3600,
-    "days": 86400, "day": 86400, "d": 86400,
+    "seconds": 1,
+    "second": 1,
+    "secs": 1,
+    "sec": 1,
+    "s": 1,
+    "minutes": 60,
+    "minute": 60,
+    "mins": 60,
+    "min": 60,
+    "hours": 3600,
+    "hour": 3600,
+    "hrs": 3600,
+    "hr": 3600,
+    "h": 3600,
+    "days": 86400,
+    "day": 86400,
+    "d": 86400,
 }
 
 
@@ -33,8 +47,8 @@ def parse_time_units(units):
         return None
     # Normalise the reference date: drop trailing 'Z'/timezone, fractional secs.
     ref = ref.replace("T", " ").rstrip("Z").strip()
-    ref = re.sub(r"\s+[+-]\d{1,2}:?\d{2}$", "", ref)      # strip +HH:MM offset
-    ref = re.sub(r"\.\d+", "", ref)                       # strip fractional secs
+    ref = re.sub(r"\s+[+-]\d{1,2}:?\d{2}$", "", ref)  # strip +HH:MM offset
+    ref = re.sub(r"\.\d+", "", ref)  # strip fractional secs
     for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M", "%Y-%m-%d"):
         try:
             return UNIT_SECONDS[unit], datetime.strptime(ref, fmt)
@@ -51,6 +65,7 @@ def _datasets(path):
 
     :raises ValueError: if the file cannot be opened by GDAL at all.
     """
+
     def _open(name):
         # GDAL <4 returns None on failure; GDAL 4 / UseExceptions() raises.
         try:
@@ -95,8 +110,9 @@ def spatial_extent(ds, gt):
             dst.SetAxisMappingStrategy(osr.OAMS_TRADITIONAL_GIS_ORDER)
             src.SetAxisMappingStrategy(osr.OAMS_TRADITIONAL_GIS_ORDER)
             tr = osr.CoordinateTransformation(src, dst)
-            corners = [tr.TransformPoint(x, y)[:2]
-                       for x in (lon_min, lon_max) for y in (lat_min, lat_max)]
+            corners = [
+                tr.TransformPoint(x, y)[:2] for x in (lon_min, lon_max) for y in (lat_min, lat_max)
+            ]
             lons = [c[0] for c in corners]
             lats = [c[1] for c in corners]
             lon_min, lon_max = min(lons), max(lons)
@@ -110,8 +126,8 @@ def time_axis(ds):
     for key, units in md.items():
         if not key.endswith("#units") or "since" not in units.lower():
             continue
-        dim = key[:-len("#units")]
-        raw = md.get("NETCDF_DIM_%s_VALUES" % dim)
+        dim = key[: -len("#units")]
+        raw = md.get(f"NETCDF_DIM_{dim}_VALUES")
         parsed = parse_time_units(units)
         if not raw or not parsed:
             continue
@@ -123,15 +139,14 @@ def time_axis(ds):
         if not values:
             continue
         stamps = sorted(ref + timedelta(seconds=v * per_unit) for v in values)
-        calendar = md.get("%s#calendar" % dim, "").lower()
+        calendar = md.get(f"{dim}#calendar", "").lower()
         return stamps, calendar
     return None
 
 
 def median_step_hours(stamps):
     """Median spacing between consecutive timestamps, in hours (None if <2)."""
-    diffs = sorted((stamps[i + 1] - stamps[i]).total_seconds()
-                   for i in range(len(stamps) - 1))
+    diffs = sorted((stamps[i + 1] - stamps[i]).total_seconds() for i in range(len(stamps) - 1))
     diffs = [d for d in diffs if d > 0]
     if not diffs:
         return None
@@ -180,10 +195,12 @@ def lon_within(e_lon_min, e_lon_max, lon):
 
 def covers(extent, lat_min, lon_min, lat_max, lon_max):
     e_lat_min, e_lon_min, e_lat_max, e_lon_max = extent
-    return (e_lat_min <= lat_min <= e_lat_max and
-            e_lat_min <= lat_max <= e_lat_max and
-            lon_within(e_lon_min, e_lon_max, lon_min) and
-            lon_within(e_lon_min, e_lon_max, lon_max))
+    return (
+        e_lat_min <= lat_min <= e_lat_max
+        and e_lat_min <= lat_max <= e_lat_max
+        and lon_within(e_lon_min, e_lon_max, lon_min)
+        and lon_within(e_lon_min, e_lon_max, lon_max)
+    )
 
 
 def check_coverage(info, map_coords, departure, forecast_hours, require_time):
@@ -208,27 +225,29 @@ def check_coverage(info, map_coords, departure, forecast_hours, require_time):
         lat_min, lon_min, lat_max, lon_max = map_coords
         if not covers(extent, lat_min, lon_min, lat_max, lon_max):
             e_lat_min, e_lon_min, e_lat_max, e_lon_max = extent
-            return (False,
-                    f"Spatial coverage [{e_lat_min:.2f}°, {e_lon_min:.2f}°, "
-                    f"{e_lat_max:.2f}°, {e_lon_max:.2f}°] does not cover "
-                    f"map [{lat_min}°, {lon_min}°, {lat_max}°, {lon_max}°]",
-                    False)
+            return (
+                False,
+                f"Spatial coverage [{e_lat_min:.2f}°, {e_lon_min:.2f}°, "
+                f"{e_lat_max:.2f}°, {e_lon_max:.2f}°] does not cover "
+                f"map [{lat_min}°, {lon_min}°, {lat_max}°, {lon_max}°]",
+                False,
+            )
         checks.append("spatial ✓")
 
     if require_time:
         if "time" not in info:
-            return (False,
-                    "No time dimension found (required for weather data)",
-                    False)
+            return (False, "No time dimension found (required for weather data)", False)
         if departure:
             end = departure + timedelta(hours=forecast_hours)
             t_min, t_max = info["time"]
             if not (t_min <= departure <= t_max and t_min <= end <= t_max):
-                return (False,
-                        f"Time coverage [{t_min:%Y-%m-%d %H:%M}, "
-                        f"{t_max:%Y-%m-%d %H:%M}] does not cover routing period "
-                        f"[{departure:%Y-%m-%d %H:%M}, {end:%Y-%m-%d %H:%M}]",
-                        False)
+                return (
+                    False,
+                    f"Time coverage [{t_min:%Y-%m-%d %H:%M}, "
+                    f"{t_max:%Y-%m-%d %H:%M}] does not cover routing period "
+                    f"[{departure:%Y-%m-%d %H:%M}, {end:%Y-%m-%d %H:%M}]",
+                    False,
+                )
             checks.append("time ✓")
 
     detail = "  ".join(checks) if checks else "structure OK"
@@ -246,7 +265,8 @@ class InspectNetcdfTask(QgsTask):
     a task failure. ``finished`` runs back on the main thread and emits ``done``
     with ``(info, error)`` for the page to render.
     """
-    done = pyqtSignal(object, object)   # (info dict or None, exception or None)
+
+    done = pyqtSignal(object, object)  # (info dict or None, exception or None)
 
     def __init__(self, path):
         super().__init__("Inspect NetCDF dataset", QgsTask.CanCancel)
@@ -257,7 +277,7 @@ class InspectNetcdfTask(QgsTask):
     def run(self):
         try:
             self.info = inspect_netcdf(self.path)
-        except Exception as e:   # noqa: BLE001 — surfaced to the user as a result
+        except Exception as e:  # noqa: BLE001 — surfaced to the user as a result
             self.error = e
         return True
 

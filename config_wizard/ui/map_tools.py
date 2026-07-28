@@ -1,8 +1,9 @@
 """Custom QGIS map tools used by the config wizard."""
-from qgis.PyQt.QtCore import Qt, pyqtSignal
-from qgis.PyQt.QtGui import QColor
+
 from qgis.core import QgsGeometry, QgsPointXY, QgsRectangle, QgsWkbTypes
 from qgis.gui import QgsMapTool, QgsMapToolEmitPoint, QgsRubberBand
+from qgis.PyQt.QtCore import Qt, pyqtSignal
+from qgis.PyQt.QtGui import QColor
 
 
 class MapPointPicker(QgsMapToolEmitPoint):
@@ -10,6 +11,7 @@ class MapPointPicker(QgsMapToolEmitPoint):
 
     A left press followed by a drag pans the canvas; a left click emits a point.
     """
+
     _DRAG_THRESHOLD = 6  # pixels of movement before a press counts as a pan
 
     def __init__(self, canvas):
@@ -49,26 +51,32 @@ class RectangleMapTool(QgsMapTool):
     Interaction:
       * drag on empty space  → rubber-band a new rectangle
       * drag an edge/corner  → resize that side
-      * double-click / Enter → confirm 
+      * double-click / Enter → confirm
       * Escape / right-click → cancel
     """
-    rectangleConfirmed = pyqtSignal(object)   # QgsRectangle (canvas CRS)
+
+    rectangleConfirmed = pyqtSignal(object)  # QgsRectangle (canvas CRS)
     cancelled = pyqtSignal()
 
-    _DRAG_THRESHOLD = 4   # px before a press becomes a new-rectangle drag
-    _HANDLE_TOL = 10      # px hit-radius around an edge/corner handle
+    _DRAG_THRESHOLD = 4  # px before a press becomes a new-rectangle drag
+    _HANDLE_TOL = 10  # px hit-radius around an edge/corner handle
 
     # handle key → which rectangle bounds it moves ('xmin'/'xmax' via point.x, 'ymin'/'ymax' via point.y)
     _HANDLE_BOUNDS = {
-        "ll": ("xmin", "ymin"), "lr": ("xmax", "ymin"),
-        "ul": ("xmin", "ymax"), "ur": ("xmax", "ymax"),
-        "l": ("xmin",), "r": ("xmax",), "b": ("ymin",), "t": ("ymax",),
+        "ll": ("xmin", "ymin"),
+        "lr": ("xmax", "ymin"),
+        "ul": ("xmin", "ymax"),
+        "ur": ("xmax", "ymax"),
+        "l": ("xmin",),
+        "r": ("xmax",),
+        "b": ("ymin",),
+        "t": ("ymax",),
     }
 
     def __init__(self, canvas):
         super().__init__(canvas)
         self._canvas = canvas
-        self._rect = None          # QgsRectangle in canvas CRS
+        self._rect = None  # QgsRectangle in canvas CRS
         self._press_pos = None
         self._drawing = False
         self._start = None

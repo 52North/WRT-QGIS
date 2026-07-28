@@ -4,7 +4,7 @@ QGIS Plugin for the Weather Routing Tool
 
 ## Requirements
 
-- QGIS 3.16 or newer
+- QGIS 3.44 or newer
 
 ## Installation
 
@@ -42,3 +42,49 @@ zip -r WRT-QGIS.zip WRT-QGIS -x "WRT-QGIS/.git/*" "WRT-QGIS/.gitignore"
 To update to a newer version, repeat the **Install from ZIP** steps with the new
 ZIP file. QGIS will overwrite the existing installation. Restart QGIS if the
 changes do not appear immediately.
+
+## Development
+
+### Linting & formatting
+
+The project uses [Ruff](https://docs.astral.sh/ruff/) for both linting and
+formatting. The configuration lives in [`pyproject.toml`](pyproject.toml).
+
+Install Ruff:
+
+```bash
+uv install ruff
+# or
+pip install ruff
+```
+
+Common commands:
+
+```bash
+ruff check .              # lint
+ruff check . --fix        # lint and apply safe fixes
+ruff format .             # format
+ruff format --check .     # verify formatting without writing changes
+```
+
+### Pre-commit hook
+
+A [pre-commit](https://pre-commit.com/) hook runs Ruff automatically on staged
+files before each commit. Enable it once after cloning:
+
+```bash
+pip install pre-commit   # or: uv tool install pre-commit
+pre-commit install
+```
+
+Run it against the whole codebase at any time with:
+
+```bash
+pre-commit run --all-files
+```
+
+### GitHub Actions
+
+Every push to `main` and every pull request runs the same Ruff lint and
+format checks via GitHub Actions (see
+[`.github/workflows/lint.yml`](.github/workflows/lint.yml)).

@@ -1,8 +1,8 @@
 """Page 5 — Constraints: selectable cards for each constraint type."""
-from qgis.PyQt.QtWidgets import (
-    QWizardPage, QVBoxLayout, QLabel
-)
+
 from qgis.PyQt.QtCore import Qt
+from qgis.PyQt.QtWidgets import QLabel, QVBoxLayout, QWizardPage
+
 from ..core.defaults import CONSTRAINT_OPTIONS
 from ..ui.ui_kit import CheckCard, StatusLine, page_header
 
@@ -28,10 +28,12 @@ class ConstraintsPage(QWizardPage):
         root.setContentsMargins(28, 22, 28, 18)
         root.setSpacing(14)
 
-        root.addWidget(page_header(
-            "Constraints",
-            "Select which constraints the routing algorithm must respect.",
-        ))
+        root.addWidget(
+            page_header(
+                "Constraints",
+                "Select which constraints the routing algorithm must respect.",
+            )
+        )
 
         # Constraint option cards
         self.check_map = {}
