@@ -17,7 +17,7 @@ from qgis.PyQt.QtWidgets import (
     QWizardPage,
 )
 
-from ..core.defaults import INTERNAL_KEYS
+from ..core.defaults import DEFAULT_ALGORITHM, INTERNAL_KEYS
 from ..ui.ui_kit import StatusLine, join_terms, page_header
 
 # Keys from WRT config.py valid for all algorithms.
@@ -105,7 +105,7 @@ _NO_WEATHER_ALGOS = frozenset({"dijkstra", "gcr_slider"})
 
 def _build_export(config):
     """Build the WRT-compatible config dict, containing only keys known to config.py."""
-    algo = config.get("ALGORITHM_TYPE", "isofuel")
+    algo = config.get("ALGORITHM_TYPE", DEFAULT_ALGORITHM)
     allowed = _UNIVERSAL_KEYS | _ALGO_KEYS.get(algo, frozenset())
 
     drop = set(INTERNAL_KEYS)

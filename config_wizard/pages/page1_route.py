@@ -327,14 +327,8 @@ class RoutePage(QWizardPage):
         return waypoints
 
     def _sync_waypoints_from_config(self):
-        """Rebuild the waypoint rows from the config (no-op when they already match).
-
-        The rows are widgets created on demand, so a config loaded from disk — or one
-        whose waypoints changed behind our back — needs them re-created.
-        """
+        """Rebuild the waypoint rows from the config."""
         wanted = self._config_waypoints()
-        # Compare at the precision the fields display, and ignore rows the user has
-        # left incomplete — they are not in the config but must not be wiped either.
         shown = [entry["field"].get_coords() for entry in self.waypoint_rows]
         if _rounded(coords for coords in shown if coords is not None) == _rounded(wanted):
             return
@@ -662,8 +656,6 @@ class RoutePage(QWizardPage):
                 except ValueError:
                     pass
         else:
-            # A config without a route (e.g. one just loaded) must not leave the
-            # previous source/destination on screen.
             self.src_field.clear()
             self.dst_field.clear()
         dep_str = self.config.get("DEPARTURE_TIME", "")

@@ -1,8 +1,4 @@
-"""Page 2 — Algorithm selection & parameters.
-
-The algorithm is chosen on this page; the parameter panel below switches to
-match the selection.
-"""
+"""Page 2 — Algorithm selection & parameters."""
 
 from qgis.PyQt.QtCore import QDateTime, Qt
 from qgis.PyQt.QtWidgets import (
@@ -25,6 +21,7 @@ from qgis.PyQt.QtWidgets import (
 
 from ..core.defaults import (
     ALGORITHM_OPTIONS,
+    DEFAULT_ALGORITHM,
     GENETIC_CROSSOVER_PATCHER_OPTIONS,
     GENETIC_INTENT_CROSSOVER,
     GENETIC_INTENT_OPTIONS,
@@ -93,6 +90,8 @@ class AlgorithmPage(QWizardPage):
         super().__init__(parent)
         self.config = config
         self.status = None
+        # If user ticks "Advanced", show the algorithm combo and all advanced sections
+        self._adv_sections = []
         self._build_ui()
 
     def _build_ui(self):
@@ -122,8 +121,22 @@ class AlgorithmPage(QWizardPage):
         )
         root.addWidget(self.header_lbl)
 
-        # Algorithm picker
-        root.addWidget(field_label("Choose an algorithm"))
+        # Algorithm picker — read-only text until "Advanced" is ticked.
+        self.algo_static = QLabel()
+        self.algo_static.setTextFormat(Qt.RichText)
+        self.algo_picker_lbl = field_label("Choose an algorithm")
+        self.adv_check = QCheckBox("Advanced")
+        self.adv_check.setToolTip("Choose a different algorithm and tune its advanced parameters")
+        self.adv_check.toggled.connect(self._on_advanced_toggled)
+
+        picker_row = QHBoxLayout()
+        picker_row.setContentsMargins(0, 0, 0, 0)
+        picker_row.addWidget(self.algo_static)
+        picker_row.addWidget(self.algo_picker_lbl)
+        picker_row.addStretch(1)
+        picker_row.addWidget(self.adv_check, 0, Qt.AlignRight | Qt.AlignVCenter)
+        root.addLayout(picker_row)
+
         self.algo_combo = QComboBox()
         for val, lbl in ALGORITHM_OPTIONS:
             self.algo_combo.addItem(lbl, val)
@@ -146,7 +159,22 @@ class AlgorithmPage(QWizardPage):
 
         root.addStretch()
 
+        # Start locked on the default algorithm; initializePage restores the saved state.
+        self.algo_combo.blockSignals(True)
+        self.algo_combo.setCurrentIndex(self._find_combo_idx(self.algo_combo, DEFAULT_ALGORITHM))
+        self.algo_combo.blockSignals(False)
+        self._on_algo_changed(self.algo_combo.currentIndex())
+        self._apply_advanced_mode(False)
+
     # Per-algorithm panels
+
+    def _advanced_section(self, layout, title="Advanced parameters"):
+        """Add a collapsible section to `layout` and register it as an expert-only group."""
+        btn, box = collapsible(title)
+        self._adv_sections.append((btn, box))
+        layout.addWidget(btn)
+        layout.addWidget(box)
+        return box
 
     def _build_isofuel_page(self):
         w = QWidget()
@@ -162,8 +190,7 @@ class AlgorithmPage(QWizardPage):
         form.addRow(opt_label("Number of routes", "ISOCHRONE_NUMBER_OF_ROUTES"), self.iso_n_routes)
         v.addWidget(req)
 
-        btn, box = collapsible("Advanced parameters")
-        adv = QFormLayout(box)
+        adv = QFormLayout(self._advanced_section(v))
         adv.setLabelAlignment(Qt.AlignRight)
         adv.setSpacing(8)
         self.iso_min_crit = _combo(MINIMISATION_OPTIONS)
@@ -188,8 +215,6 @@ class AlgorithmPage(QWizardPage):
         adv.addRow(
             opt_label("Prune symmetry axis", "ISOCHRONE_PRUNE_SYMMETRY_AXIS"), self.iso_prune_sym
         )
-        v.addWidget(btn)
-        v.addWidget(box)
         v.addStretch()
         return w
 
@@ -296,8 +321,7 @@ class AlgorithmPage(QWizardPage):
         v.addWidget(self.gen_s_box)
 
         # Advanced parameters
-        btn, box = collapsible("Advanced parameters")
-        adv = QFormLayout(box)
+        adv = QFormLayout(self._advanced_section(v))
         adv.setLabelAlignment(Qt.AlignRight)
         adv.setSpacing(8)
         self.gen_offsprings = ispin(val=2, mn=1)
@@ -330,8 +354,6 @@ class AlgorithmPage(QWizardPage):
             opt_label("Crossover patcher", "GENETIC_CROSSOVER_PATCHER"), self.gen_crossover_patcher
         )
         adv.addRow(self.gen_fix_seed)
-        v.addWidget(btn)
-        v.addWidget(box)
         v.addStretch()
         return w
 
@@ -341,8 +363,7 @@ class AlgorithmPage(QWizardPage):
         v.setContentsMargins(0, 0, 0, 0)
         v.setSpacing(10)
 
-        btn, box = collapsible("Advanced parameters")
-        adv = QFormLayout(box)
+        adv = QFormLayout(self._advanced_section(v))
         adv.setLabelAlignment(Qt.AlignRight)
         adv.setSpacing(8)
         self.gcr_angle_step = dspin(val=30, dec=1, suffix="°")
@@ -370,8 +391,6 @@ class AlgorithmPage(QWizardPage):
         adv.addRow(self.gcr_interp_normalized)
         adv.addRow(opt_label("Max points", "GCR_SLIDER_MAX_POINTS"), self.gcr_max_points)
         adv.addRow(opt_label("Threshold", "GCR_SLIDER_THRESHOLD"), self.gcr_threshold)
-        v.addWidget(btn)
-        v.addWidget(box)
         v.addStretch()
         return w
 
@@ -381,8 +400,7 @@ class AlgorithmPage(QWizardPage):
         v.setContentsMargins(0, 0, 0, 0)
         v.setSpacing(10)
 
-        btn, box = collapsible("Advanced parameters")
-        adv = QFormLayout(box)
+        adv = QFormLayout(self._advanced_section(v))
         adv.setLabelAlignment(Qt.AlignRight)
         adv.setSpacing(8)
         self.dijk_neighbors = ispin(val=1, mn=1)
@@ -397,8 +415,6 @@ class AlgorithmPage(QWizardPage):
         adv.addRow(opt_label("Num. neighbors", "DIJKSTRA_NOF_NEIGHBORS"), self.dijk_neighbors)
         adv.addRow(opt_label("Route save step", "DIJKSTRA_STEP"), self.dijk_step)
         adv.addRow(opt_label("Land mask file", "DIJKSTRA_MASK_FILE"), mask_row)
-        v.addWidget(btn)
-        v.addWidget(box)
         v.addStretch()
         return w
 
@@ -428,13 +444,35 @@ class AlgorithmPage(QWizardPage):
     # Helpers
 
     def _on_algo_changed(self, _idx):
-        algo = self.algo_combo.currentData() or "isofuel"
+        algo = self.algo_combo.currentData() or DEFAULT_ALGORITHM
+        label = _ALGO_LABELS.get(algo, algo)
+        self.algo_static.setText(f"<b>Selected algorithm:</b>  {label}")
         self.algo_desc.setText(_ALGO_DESCRIPTIONS.get(algo, ""))
         self.stack.setCurrentIndex(_ALGO_STACK.get(algo, 0))
         self._update_status()
 
+    def _apply_advanced_mode(self, is_advanced):
+        """Advanced mode shows the algorithm combo and every advanced parameter section."""
+        self.algo_static.setVisible(not is_advanced)
+        self.algo_picker_lbl.setVisible(is_advanced)
+        self.algo_combo.setVisible(is_advanced)
+        for btn, _box in self._adv_sections:
+            btn.set_expanded(False)  # each section starts collapsed
+            btn.setVisible(is_advanced)
+
+    def _on_advanced_toggled(self, is_checked):
+        # Leaving advanced mode always returns the page to the default algorithm,.
+        if not is_checked and self._current_algo() != DEFAULT_ALGORITHM:
+            self.algo_combo.blockSignals(True)
+            self.algo_combo.setCurrentIndex(
+                self._find_combo_idx(self.algo_combo, DEFAULT_ALGORITHM)
+            )
+            self.algo_combo.blockSignals(False)
+            self._on_algo_changed(self.algo_combo.currentIndex())
+        self._apply_advanced_mode(is_checked)
+
     def _current_algo(self):
-        return self.algo_combo.currentData() or "isofuel"
+        return self.algo_combo.currentData() or DEFAULT_ALGORITHM
 
     def _update_status(self):
         if self.status is None:
@@ -506,6 +544,7 @@ class AlgorithmPage(QWizardPage):
     def save_to_config(self):
         c = self.config
         c["ALGORITHM_TYPE"] = self.algo_combo.currentData()
+        c["_ALGO_ADVANCED"] = self.adv_check.isChecked()
         # Isofuel
         c["ISOCHRONE_NUMBER_OF_ROUTES"] = self.iso_n_routes.value()
         c["ISOCHRONE_MINIMISATION_CRITERION"] = self.iso_min_crit.currentData()
@@ -572,12 +611,17 @@ class AlgorithmPage(QWizardPage):
     def initializePage(self):
         c = self.config
         # Restore algorithm picker first so _current_algo() is consistent.
-        algo = c.get("ALGORITHM_TYPE", "isofuel")
-        idx = self.algo_combo.findData(algo)
+        algo = c.get("ALGORITHM_TYPE", DEFAULT_ALGORITHM)
         self.algo_combo.blockSignals(True)
-        self.algo_combo.setCurrentIndex(idx if idx >= 0 else 0)
+        self.algo_combo.setCurrentIndex(self._find_combo_idx(self.algo_combo, algo))
         self.algo_combo.blockSignals(False)
         self._on_algo_changed(self.algo_combo.currentIndex())
+        # A non-default algorithm is never hidden behind the locked row.
+        is_advanced = bool(c.get("_ALGO_ADVANCED")) or self._current_algo() != DEFAULT_ALGORITHM
+        self.adv_check.blockSignals(True)
+        self.adv_check.setChecked(is_advanced)
+        self.adv_check.blockSignals(False)
+        self._apply_advanced_mode(is_advanced)
         # Isofuel
         self.iso_n_routes.setValue(int(c.get("ISOCHRONE_NUMBER_OF_ROUTES") or 1))
         self.iso_min_crit.setCurrentIndex(

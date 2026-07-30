@@ -21,6 +21,7 @@ from ..core.defaults import (
     ALGO_BOAT_COMPAT,
     ALGO_BOAT_COMPAT_DEFAULT,
     BOAT_TYPE_OPTIONS,
+    DEFAULT_ALGORITHM,
 )
 from ..ui.ui_kit import (
     COLOR_MUTED,
@@ -369,7 +370,7 @@ class BoatPage(QWizardPage):
 
     def _populate_boat_types(self):
         """Restrict the boat-type combo to the types valid for the chosen algorithm."""
-        algo = self.config.get("ALGORITHM_TYPE", "isofuel")
+        algo = self.config.get("ALGORITHM_TYPE", DEFAULT_ALGORITHM)
         allowed = _compatible_boat_types(algo)
         current = self.boat_type.currentData()
         self.boat_type.blockSignals(True)

@@ -1,21 +1,16 @@
-"""Load a WRT ``config.json`` from disk back into the wizard's config dict.
-
-This is the inverse of ``_build_export`` in ``pages/page6_review.py``: it undoes the
-export-time transforms (coordinate lists, the single-element repair list, the stripped
-wizard-internal keys) so every page's ``initializePage`` can restore its widgets.
-"""
+"""Load a WRT ``config.json`` from disk back into the wizard's config dict."""
 
 import copy
 import json
 import re
 from datetime import datetime
 
-from .defaults import DEFAULTS
+from .defaults import DEFAULT_ALGORITHM, DEFAULTS, INTERNAL_KEYS
 
 # Format the pages parse departure/arrival times with (QDateTime.fromString).
 TIME_FORMAT = "%Y-%m-%dT%H:%MZ"
 
-# Accepted on input — hand-written configs often carry seconds or omit the "Z".
+# Accepted on input time formats.
 _INPUT_TIME_FORMATS = (
     "%Y-%m-%dT%H:%MZ",
     "%Y-%m-%dT%H:%M:%SZ",
@@ -25,9 +20,8 @@ _INPUT_TIME_FORMATS = (
 
 _INT_PATTERN = re.compile(r"^[+-]?\d+$")
 
-# Keys whose value the wizard writes back from a widget. Mirrors the ``save_to_config``
-# methods of pages 1-5 (route, algorithm, boat, weather, constraints); anything loaded
-# that is missing here survives untouched but cannot be edited in the UI.
+# Keys whose value the wizard writes back from a widget.
+# Anything loaded that is missing here survives untouched but cannot be edited in the UI.
 WIZARD_EDITABLE_KEYS = frozenset(
     {
         # Page 1 — route
@@ -224,9 +218,10 @@ def normalize_config(raw):
         else:
             config[key] = value
 
-    _restore_genetic_state(config, raw)
+    _restore_internal_state(config, raw)
 
-    not_editable = sorted(set(raw) - WIZARD_EDITABLE_KEYS)
+    # Wizard-internal keys are restored above, so they are not "unknown" either.
+    not_editable = sorted(set(raw) - WIZARD_EDITABLE_KEYS - INTERNAL_KEYS)
     if not_editable:
         warnings.append("Kept as-is (no wizard field for these): " + ", ".join(not_editable) + ".")
     return config, warnings
@@ -318,12 +313,8 @@ def _to_number(value):
     return None
 
 
-def _restore_genetic_state(config, raw):
-    """Rebuild the wizard-internal genetic keys that INTERNAL_KEYS strips on export.
-
-    ``raw`` is the on-disk object: a file that carries the keys explicitly wins over
-    the inference (same crossover mapping AlgorithmPage.initializePage uses).
-    """
+def _restore_internal_state(config, raw):
+    """Rebuild the wizard-internal keys that INTERNAL_KEYS strips on export."""
     intent = raw.get("_GENETIC_INTENT")
     if not intent:
         crossover = config.get("GENETIC_CROSSOVER_TYPE", "random")
@@ -337,3 +328,9 @@ def _restore_genetic_state(config, raw):
             "via_arrival" if intent == "waypoints" and config.get("ARRIVAL_TIME") else "via_speed"
         )
     config["_GENETIC_SCHEDULE"] = schedule
+
+    # If the file does not carry the advanced flag, infer it from the algorithm type.
+    is_advanced = raw.get("_ALGO_ADVANCED")
+    if is_advanced is None:
+        is_advanced = config.get("ALGORITHM_TYPE") != DEFAULT_ALGORITHM
+    config["_ALGO_ADVANCED"] = bool(_to_bool(is_advanced))

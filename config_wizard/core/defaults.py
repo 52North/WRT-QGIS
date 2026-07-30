@@ -4,6 +4,9 @@ All values are drawn from the official WRT documentation:
 https://52north.github.io/WeatherRoutingTool/source/configuration.html
 """
 
+# Default algorithm type used if advanced algorithm selection is not enabled.
+DEFAULT_ALGORITHM = "genetic"
+
 DEFAULTS = {
     # --- Route (Page 1) ---
     "DEFAULT_MAP": "",  # bbox lat_min,lon_min,lat_max,lon_max  (derived from route if blank)
@@ -51,7 +54,7 @@ DEFAULTS = {
     "DELTA_TIME_FORECAST": 3,
     "TIME_FORECAST": 90,
     # --- Algorithm (Page 4) ---
-    "ALGORITHM_TYPE": "isofuel",
+    "ALGORITHM_TYPE": DEFAULT_ALGORITHM,
     # Isofuel / isochrone params
     "DELTA_FUEL": 3000,
     "ISOCHRONE_MAX_ROUTING_STEPS": 100,
@@ -92,10 +95,12 @@ DEFAULTS = {
     # --- Wizard-internal state (genetic)) ---
     "_GENETIC_INTENT": "speed_waypoints",  # waypoints | speed_waypoints | speed
     "_GENETIC_SCHEDULE": "via_speed",  # via_speed | via_arrival (waypoints-only mode)
+    # --- Wizard-internal state (algorithm page) ---
+    "_ALGO_ADVANCED": False,  # True once the user unlocks algorithm choice + advanced params
 }
 
 # Wizard-internal keys never written to the exported config.json.
-INTERNAL_KEYS = {"_GENETIC_INTENT", "_GENETIC_SCHEDULE"}
+INTERNAL_KEYS = {"_GENETIC_INTENT", "_GENETIC_SCHEDULE", "_ALGO_ADVANCED"}
 
 BOAT_TYPE_OPTIONS = [
     ("direct_power_method", "Direct power method"),
@@ -164,7 +169,7 @@ GENETIC_CROSSOVER_PATCHER_OPTIONS = [
 
 # Full algorithm list shown on Page 2.
 ALGORITHM_OPTIONS = [
-    ("isofuel", "Isofuel (default)"),
+    ("isofuel", "Isofuel"),
     ("genetic", "Genetic"),
     ("gcr_slider", "GCR Slider"),
     ("dijkstra", "Dijkstra"),

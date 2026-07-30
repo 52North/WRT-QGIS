@@ -649,7 +649,11 @@ def ispin(val=0, mn=0, mx=999999):
 
 
 def collapsible(title):
-    """A flat toggle button that shows/hides a returned (initially hidden) QGroupBox."""
+    """A flat toggle button that shows/hides a returned (initially hidden) QGroupBox.
+
+    The button carries a ``set_expanded(expanded)`` callable so callers can open or
+    close the section from code without the arrow going out of sync.
+    """
     btn = QPushButton("▶  " + title)
     btn.setFlat(True)
     btn.setAutoDefault(False)
@@ -663,12 +667,12 @@ def collapsible(title):
     box = QGroupBox()
     box.setVisible(False)
 
-    def toggle():
-        vis = not box.isVisible()
-        box.setVisible(vis)
-        btn.setText(("▼" if vis else "▶") + "  " + title)
+    def set_expanded(expanded):
+        box.setVisible(expanded)
+        btn.setText(("▼" if expanded else "▶") + "  " + title)
 
-    btn.clicked.connect(toggle)
+    btn.clicked.connect(lambda: set_expanded(not box.isVisible()))
+    btn.set_expanded = set_expanded
     return btn, box
 
 
