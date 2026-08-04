@@ -10,6 +10,7 @@ from qgis.core import (
     QgsPointXY,
     QgsProject,
 )
+from qgis.PyQt import sip
 from qgis.PyQt.QtCore import pyqtSignal
 from qgis.PyQt.QtWidgets import (
     QDockWidget,
@@ -405,7 +406,7 @@ class VisualizerPanel(QDockWidget):
         self._tree_connections = []
         project = QgsProject.instance()
         for layer in self._route_layers:
-            if layer.id() in project.mapLayers():
+            if not sip.isdeleted(layer) and layer.id() in project.mapLayers():
                 project.removeMapLayer(layer.id())
         self._route_layers = []
         self._boat_layer = None
@@ -425,7 +426,11 @@ class VisualizerPanel(QDockWidget):
         layer_tree.disconnect_visibility(self._tree_connections)
         self._tree_connections = []
         project = QgsProject.instance()
-        if self._mesh_layer is not None and self._mesh_layer.id() in project.mapLayers():
+        if (
+            self._mesh_layer is not None
+            and not sip.isdeleted(self._mesh_layer)
+            and self._mesh_layer.id() in project.mapLayers()
+        ):
             project.removeMapLayer(self._mesh_layer.id())
         self._mesh_layer = None
         self._mesh_loader = None

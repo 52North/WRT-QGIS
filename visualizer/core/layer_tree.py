@@ -7,6 +7,12 @@ Reorders the layers so that the route is always on top of the weather data.
 import contextlib
 
 from qgis.core import QgsProject
+from qgis.PyQt import sip
+
+
+def _is_alive(layer):
+    """Return True if the layer is still alive."""
+    return not sip.isdeleted(layer)
 
 
 def add_on_top(layers):
@@ -24,6 +30,8 @@ def raise_to_top(layers):
 
     root = QgsProject.instance().layerTreeRoot()
     for layer in layers:
+        if not _is_alive(layer):
+            continue
         node = root.findLayer(layer.id())
         if node is None:
             continue
@@ -37,6 +45,8 @@ def set_visible(layers, is_visible):
     """Tick or untick ``layers`` in the Layers panel."""
     root = QgsProject.instance().layerTreeRoot()
     for layer in layers:
+        if not _is_alive(layer):
+            continue
         node = root.findLayer(layer.id())
         if node is not None:
             node.setItemVisibilityChecked(is_visible)
@@ -51,6 +61,8 @@ def connect_visibility(layers, slot):
     root = QgsProject.instance().layerTreeRoot()
     connections = []
     for layer in layers:
+        if not _is_alive(layer):
+            continue
         node = root.findLayer(layer.id())
         if node is None:
             continue
