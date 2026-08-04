@@ -1,7 +1,6 @@
 import json
 import math
 
-from qgis.PyQt.QtCore import QVariant
 from qgis.core import (
     QgsFeature,
     QgsField,
@@ -9,6 +8,7 @@ from qgis.core import (
     QgsPointXY,
     QgsVectorLayer,
 )
+from qgis.PyQt.QtCore import QDateTime, Qt, QVariant
 
 _SENTINEL = -99
 
@@ -32,6 +32,33 @@ def _nested_value(props, key):
     return raw
 
 
+def _direction(u, v):
+    """Meteorological direction (degrees the flow comes *from*) for an east/north pair."""
+    if u is None or v is None:
+        return None
+    return (270.0 - math.degrees(math.atan2(v, u))) % 360.0
+
+
+_TIME_FORMATS = ["yyyy-MM-dd HH:mm:ss", "yyyy-MM-dd HH:mm"]
+
+
+def _parse_time(raw):
+    """Parse a waypoint timestamp as UTC. Returns an invalid QDateTime on failure."""
+    if not raw:
+        return QDateTime()
+    stamp = QDateTime.fromString(raw, Qt.ISODate)
+    for fmt in _TIME_FORMATS:
+        if stamp.isValid():
+            break
+        stamp = QDateTime.fromString(raw, fmt)
+    if not stamp.isValid():
+        return QDateTime()
+    # WRT timestamps carry no offset and are UTC by convention.
+    if stamp.timeSpec() == Qt.LocalTime:
+        stamp.setTimeSpec(Qt.UTC)
+    return stamp
+
+
 def _initial_bearing(lat1, lon1, lat2, lon2):
     """Great-circle initial bearing (degrees, 0–360, 0=North clockwise) from point 1 to point 2."""
     lat1, lon1, lat2, lon2 = map(math.radians, [lat1, lon1, lat2, lon2])
@@ -43,7 +70,7 @@ def _initial_bearing(lat1, lon1, lat2, lon2):
 
 class RouteLoader:
     def __init__(self, geojson_path):
-        with open(geojson_path, "r", encoding="utf-8") as fh:
+        with open(geojson_path, encoding="utf-8") as fh:
             data = json.load(fh)
         self._waypoints = self._parse(data)
 
@@ -56,20 +83,35 @@ class RouteLoader:
 
             u = _no_data(_nested_value(props, "u_wind_speed"))
             v = _no_data(_nested_value(props, "v_wind_speed"))
-            wind_speed = math.sqrt(u ** 2 + v ** 2) if (u is not None and v is not None) else None
+            wind_speed = math.sqrt(u**2 + v**2) if (u is not None and v is not None) else None
 
-            waypoints.append({
-                "id": feat.get("id", len(waypoints)),
-                "lon": lon,
-                "lat": lat,
-                "time": props.get("time", ""),
-                "speed": _no_data(_nested_value(props, "speed")),
-                "engine_power": _no_data(_nested_value(props, "engine_power")),
-                "fuel_consumption": _no_data(_nested_value(props, "fuel_consumption")),
-                "wave_height": _no_data(_nested_value(props, "wave_height")),
-                "wind_speed": wind_speed,
-                "bearing": 0.0,
-            })
+            u_cur = _no_data(_nested_value(props, "u_currents"))
+            v_cur = _no_data(_nested_value(props, "v_currents"))
+            current_speed = (
+                math.sqrt(u_cur**2 + v_cur**2)
+                if (u_cur is not None and v_cur is not None)
+                else None
+            )
+
+            raw_time = props.get("time", "")
+            waypoints.append(
+                {
+                    "id": feat.get("id", len(waypoints)),
+                    "lon": lon,
+                    "lat": lat,
+                    "time": raw_time,
+                    "datetime": _parse_time(raw_time),
+                    "speed": _no_data(_nested_value(props, "speed")),
+                    "engine_power": _no_data(_nested_value(props, "engine_power")),
+                    "fuel_consumption": _no_data(_nested_value(props, "fuel_consumption")),
+                    "wave_height": _no_data(_nested_value(props, "wave_height")),
+                    "wave_period": _no_data(_nested_value(props, "wave_period")),
+                    "wind_speed": wind_speed,
+                    "wind_direction": _direction(u, v),
+                    "current_speed": current_speed,
+                    "bearing": 0.0,
+                }
+            )
 
         for i in range(len(waypoints) - 1):
             wp, nxt = waypoints[i], waypoints[i + 1]
@@ -87,13 +129,16 @@ class RouteLoader:
     def waypoints(self):
         return self._waypoints
 
+    @property
+    def timestamps(self):
+        """Absolute waypoint times, mirroring WeatherMeshLoader.timestamps."""
+        return [wp["datetime"] for wp in self._waypoints]
+
     def build_line_layer(self):
         layer = QgsVectorLayer("LineString?crs=EPSG:4326", "WRT Route", "memory")
         feat = QgsFeature()
         feat.setGeometry(
-            QgsGeometry.fromPolylineXY(
-                [QgsPointXY(wp["lon"], wp["lat"]) for wp in self._waypoints]
-            )
+            QgsGeometry.fromPolylineXY([QgsPointXY(wp["lon"], wp["lat"]) for wp in self._waypoints])
         )
         layer.dataProvider().addFeature(feat)
         layer.updateExtents()
@@ -102,13 +147,15 @@ class RouteLoader:
     def build_markers_layer(self):
         layer = QgsVectorLayer("Point?crs=EPSG:4326", "WRT Route Markers", "memory")
         dp = layer.dataProvider()
-        dp.addAttributes([
-            QgsField("role", QVariant.String),
-            QgsField("label", QVariant.String),
-        ])
+        dp.addAttributes(
+            [
+                QgsField("role", QVariant.String),
+                QgsField("label", QVariant.String),
+            ]
+        )
         layer.updateFields()
         pairs = [
-            (self._waypoints[0],  "source",      "Source"),
+            (self._waypoints[0], "source", "Source"),
             (self._waypoints[-1], "destination", "Destination"),
         ]
         feats = []
@@ -124,32 +171,36 @@ class RouteLoader:
     def build_point_layer(self):
         layer = QgsVectorLayer("Point?crs=EPSG:4326", "WRT Waypoints", "memory")
         dp = layer.dataProvider()
-        dp.addAttributes([
-            QgsField("id", QVariant.Int),
-            QgsField("time", QVariant.String),
-            QgsField("speed", QVariant.Double),
-            QgsField("power", QVariant.Double),
-            QgsField("fuel", QVariant.Double),
-            QgsField("wave_h", QVariant.Double),
-            QgsField("wind_spd", QVariant.Double),
-            QgsField("bearing", QVariant.Double),
-        ])
+        dp.addAttributes(
+            [
+                QgsField("id", QVariant.Int),
+                QgsField("time", QVariant.String),
+                QgsField("speed", QVariant.Double),
+                QgsField("power", QVariant.Double),
+                QgsField("fuel", QVariant.Double),
+                QgsField("wave_h", QVariant.Double),
+                QgsField("wind_spd", QVariant.Double),
+                QgsField("bearing", QVariant.Double),
+            ]
+        )
         layer.updateFields()
 
         feats = []
         for wp in self._waypoints:
             f = QgsFeature()
             f.setGeometry(QgsGeometry.fromPointXY(QgsPointXY(wp["lon"], wp["lat"])))
-            f.setAttributes([
-                wp["id"],
-                wp["time"],
-                wp["speed"],
-                wp["engine_power"],
-                wp["fuel_consumption"],
-                wp["wave_height"],
-                wp["wind_speed"],
-                wp["bearing"],
-            ])
+            f.setAttributes(
+                [
+                    wp["id"],
+                    wp["time"],
+                    wp["speed"],
+                    wp["engine_power"],
+                    wp["fuel_consumption"],
+                    wp["wave_height"],
+                    wp["wind_speed"],
+                    wp["bearing"],
+                ]
+            )
             feats.append(f)
         dp.addFeatures(feats)
         layer.updateExtents()

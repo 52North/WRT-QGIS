@@ -1,4 +1,3 @@
-from qgis.PyQt.QtGui import QColor, QFont
 from qgis.core import (
     QgsLineSymbol,
     QgsMarkerLineSymbolLayer,
@@ -14,6 +13,7 @@ from qgis.core import (
     QgsUnitTypes,
     QgsVectorLayerSimpleLabeling,
 )
+from qgis.PyQt.QtGui import QColor, QFont
 
 ARROW_COLOR = QColor(70, 130, 180)
 SAILBOAT_FILL = QColor(255, 165, 0)
@@ -32,13 +32,15 @@ def style_route_line(layer, color=ARROW_COLOR):
     line.setWidth(0.6)
     line.setWidthUnit(QgsUnitTypes.RenderMillimeters)
 
-    dot_sub_symbol = QgsMarkerSymbol.createSimple({
-        "name": "circle",
-        "size": "2.2",
-        "size_unit": "MM",
-        "color": color.name(),
-        "outline_style": "no",
-    })
+    dot_sub_symbol = QgsMarkerSymbol.createSimple(
+        {
+            "name": "circle",
+            "size": "2.2",
+            "size_unit": "MM",
+            "color": color.name(),
+            "outline_style": "no",
+        }
+    )
 
     dots = QgsMarkerLineSymbolLayer(True)
     dots.setPlacement(QgsMarkerLineSymbolLayer.Vertex)
@@ -72,8 +74,9 @@ def style_sailboat_points(layer, svg_path, size_mm=5.0, fill=SAILBOAT_FILL, stro
     layer.triggerRepaint()
 
 
-def style_boat_marker(layer, svg_path, size_mm=9.5, fill=BOAT_FILL, stroke=BOAT_STROKE):
-    layer.renderer().setSymbol(_make_svg_marker(svg_path, size_mm, fill, stroke, '"bearing" + 90'))
+def style_boat_marker(layer, svg_path, size_mm=8.0, fill=BOAT_FILL, stroke=BOAT_STROKE):
+    """The vessel as a compass puck: a disc with the needle turned to the bearing."""
+    layer.renderer().setSymbol(_make_svg_marker(svg_path, size_mm, fill, stroke, '"bearing"'))
     layer.triggerRepaint()
 
 
@@ -86,8 +89,10 @@ def style_markers_layer(layer, svg_path, size_mm=14.0):
         return rule
 
     root = QgsRuleBasedRenderer.Rule(None)
-    root.appendChild(_rule("Source",      "\"role\" = 'source'",      SOURCE_FLAG_FILL, SOURCE_FLAG_STROKE))
-    root.appendChild(_rule("Destination", "\"role\" = 'destination'", DEST_FLAG_FILL,   DEST_FLAG_STROKE))
+    root.appendChild(_rule("Source", "\"role\" = 'source'", SOURCE_FLAG_FILL, SOURCE_FLAG_STROKE))
+    root.appendChild(
+        _rule("Destination", "\"role\" = 'destination'", DEST_FLAG_FILL, DEST_FLAG_STROKE)
+    )
     layer.setRenderer(QgsRuleBasedRenderer(root))
 
     fmt = QgsTextFormat()

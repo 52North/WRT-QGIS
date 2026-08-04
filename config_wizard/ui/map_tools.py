@@ -200,3 +200,11 @@ class RectangleMapTool(QgsMapTool):
         self._band.reset(QgsWkbTypes.PolygonGeometry)
         self._handle_band.reset(QgsWkbTypes.PointGeometry)
         super().deactivate()
+
+    def detach(self):
+        """Remove the rubber bands from the canvas when the tool is no longer needed."""
+        self.deactivate()
+        for band in (self._band, self._handle_band):
+            scene = band.scene()
+            if scene is not None:
+                scene.removeItem(band)
