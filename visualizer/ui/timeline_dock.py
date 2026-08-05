@@ -29,6 +29,10 @@ _AXIS_FORMAT = "MMM dd HH:mm"
 
 _AXIS_TICKS = 5
 
+# Dock height constraints
+_MIN_DOCK_HEIGHT = 140
+_MAX_DOCK_HEIGHT = 260
+
 _QSS = f"""
 QLabel#Date {{ font-family: {MONO_FAMILY}; font-size: 20px; font-weight: 600;
                color: {COLOR_TEXT}; }}
@@ -69,6 +73,9 @@ class TimelineDock(QDockWidget):
 
         self._timer = QTimer(self)
         self._timer.timeout.connect(self._on_timer_tick)
+
+        self.setMinimumHeight(_MIN_DOCK_HEIGHT)
+        self.setMaximumHeight(_MAX_DOCK_HEIGHT)
 
         self._build_ui()
         self.refresh()

@@ -52,6 +52,10 @@ BOAT_PUCK_PATH = os.path.join(
 
 WEATHER_LAYER_NAME = "WRT Weather data"
 
+# Dock width contraints
+_MIN_DOCK_WIDTH = 400
+_MAX_DOCK_WIDTH = 500
+
 # Route layer contains the line, the waypoints, the flags and the boat; the four layers are stacked in this order.
 _ROUTE_CARD = {
     "index": ROUTE,
@@ -137,6 +141,9 @@ class VisualizerPanel(QDockWidget):
         self._legend = None
         self._advanced_box = None
         self._region_stats = None
+
+        self.setMinimumWidth(_MIN_DOCK_WIDTH)
+        self.setMaximumWidth(_MAX_DOCK_WIDTH)
 
         self._build_ui()
 
@@ -394,8 +401,8 @@ class VisualizerPanel(QDockWidget):
             WEATHER_COLOR,
             self.unload_weather,
         )
-        for variable in loader.variables:
-            self._add_card(variable)
+        for i, variable in enumerate(loader.variables):
+            self._add_card(variable, checked=(i == 0))
         self._region_stats.set_source(self._mesh_layer, self._mesh_loader)
         if not self._route_layers:
             self._zoom_to(self._mesh_layer)
