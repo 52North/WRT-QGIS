@@ -1,14 +1,31 @@
 """A colour ramp legend floating over the map canvas."""
 
 from qgis.PyQt.QtCore import QEvent, Qt
+from qgis.PyQt.QtGui import QFontMetrics
 from qgis.PyQt.QtWidgets import QFrame, QHBoxLayout, QLabel, QVBoxLayout
 
 from ...config_wizard.ui.ui_kit import COLOR_BORDER, COLOR_MUTED, COLOR_TEXT
 from .color_bar import ColorBar
 
-# Distance from the canvas corner, and the floor the box never shrinks past.
+# Distance from the canvas corner, and the floor/ceiling the box never shrinks/grows past.
 _MARGIN = 12
-_MIN_WIDTH = 150
+_MIN_WIDTH = 190
+_MAX_WIDTH = 260
+
+# Fractions along the ramp (0=vmin, 1=vmax) that get a tick label under the bar.
+_TICK_FRACTIONS = (0, 0.25, 0.5, 0.75, 1)
+
+
+def _fmt(value):
+    return f"{value:.4g}"
+
+
+def _elided(label, text, max_width):
+    """Elide ``text`` to fit within ``max_width`` px, keeping the full text as a tooltip."""
+    metrics = QFontMetrics(label.font())
+    label.setText(metrics.elidedText(text, Qt.ElideRight, max_width))
+    label.setToolTip(text)
+
 
 _LEGEND_QSS = f"""
 QFrame#MapLegend {{
@@ -19,10 +36,6 @@ QFrame#MapLegend {{
 QLabel#LegendTitle {{ font-size: 11px; font-weight: 600; color: {COLOR_TEXT}; }}
 QLabel#LegendTick {{ font-size: 10px; color: {COLOR_MUTED}; }}
 """
-
-
-def _fmt(value):
-    return f"{value:.4g}"
 
 
 class MapColorbarLegend(QFrame):
@@ -39,6 +52,7 @@ class MapColorbarLegend(QFrame):
 
     def _build_ui(self):
         self.setMinimumWidth(_MIN_WIDTH)
+        self.setMaximumWidth(_MAX_WIDTH)
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(10, 8, 10, 8)
@@ -52,21 +66,28 @@ class MapColorbarLegend(QFrame):
         layout.addWidget(self._bar)
 
         ticks = QHBoxLayout()
-        self._low = QLabel()
-        self._low.setObjectName("LegendTick")
-        self._high = QLabel()
-        self._high.setObjectName("LegendTick")
-        ticks.addWidget(self._low)
-        ticks.addStretch()
-        ticks.addWidget(self._high)
+        ticks.setSpacing(4)
+        self._ticks = []
+        for i, _ in enumerate(_TICK_FRACTIONS):
+            if i:
+                ticks.addStretch()
+            tick_label = QLabel()
+            tick_label.setObjectName("LegendTick")
+            self._ticks.append(tick_label)
+            ticks.addWidget(tick_label)
         layout.addLayout(ticks)
 
     def show_variable(self, variable, ramp):
         unit = (variable.get("unit") or "").strip()
-        self._title.setText(f"{variable['name']} ({unit})" if unit else variable["name"])
+        title = f"{variable['name']} ({unit})" if unit else variable["name"]
+        _elided(self._title, title, _MAX_WIDTH - 20)
+
         self._bar.set_ramp(ramp)
-        self._low.setText(_fmt(variable["vmin"]))
-        self._high.setText(_fmt(variable["vmax"]))
+
+        vmin, vmax = variable["vmin"], variable["vmax"]
+        for fraction, tick_label in zip(_TICK_FRACTIONS, self._ticks, strict=True):
+            tick_label.setText(_fmt(vmin + (vmax - vmin) * fraction))
+
         self.show()
         self.raise_()
         self._reposition()
