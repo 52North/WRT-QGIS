@@ -1,12 +1,17 @@
 """Page 5 — Constraints: selectable cards for each constraint type."""
 
 from qgis.PyQt.QtCore import Qt
-from qgis.PyQt.QtWidgets import QLabel, QVBoxLayout, QWizardPage
+from qgis.PyQt.QtWidgets import QLabel, QVBoxLayout
 
 from ..core.defaults import CONSTRAINT_OPTIONS
 from ..ui.ui_kit import CheckCard, StatusLine, page_header
+from ..ui.validation import FieldError, ValidatedPage
 
 DEFAULT_CONSTRAINTS = ["land_crossing_global_land_mask", "water_depth", "on_map"]
+
+REQUIRED_CONSTRAINT = (
+    "land_crossing_global_land_mask"  # Selected by default and cannot be disabled.
+)
 
 CONSTRAINT_DESCRIPTIONS = {
     "land_crossing_global_land_mask": "Prevent the route from crossing land, using the global land mask.",
@@ -16,7 +21,7 @@ CONSTRAINT_DESCRIPTIONS = {
 }
 
 
-class ConstraintsPage(QWizardPage):
+class ConstraintsPage(ValidatedPage):
     def __init__(self, config, parent=None):
         super().__init__(parent)
         self.config = config
@@ -41,7 +46,7 @@ class ConstraintsPage(QWizardPage):
         for val, label in CONSTRAINT_OPTIONS:
             card = CheckCard(label, CONSTRAINT_DESCRIPTIONS.get(val, ""))
             card.setChecked(val in DEFAULT_CONSTRAINTS)
-            card.toggled.connect(self._update_status)
+            card.toggled.connect(self._on_card_toggled)
             self.check_map[val] = card
             root.addWidget(card)
 
@@ -61,11 +66,32 @@ class ConstraintsPage(QWizardPage):
         root.addWidget(self.status)
         self._update_status()
 
+    def _on_card_toggled(self, _checked):
+        """A card has no textChanged/valueChanged for ValidatedPage to watch, so drop any
+        error mark here instead."""
+        self.clear_errors()
+        self._update_status()
+
     def _update_status(self):
         if self.status is None:
             return  # still being constructed
+        if not self.check_map[REQUIRED_CONSTRAINT].isChecked():
+            self.status.set_pending("Land crossing is required by the routing tool")
+            return
         n = sum(1 for cb in self.check_map.values() if cb.isChecked())
         self.status.set_ok(f"{n} constraint{'' if n == 1 else 's'} selected")
+
+    # Validation — runs when Next is pressed, never while typing
+    def validation_errors(self):
+        if not self.check_map[REQUIRED_CONSTRAINT].isChecked():
+            return [
+                FieldError(
+                    "land crossing must stay enabled — the routing tool rejects a "
+                    "configuration without it",
+                    self.check_map[REQUIRED_CONSTRAINT],
+                )
+            ]
+        return []
 
     # Config persistence
     def save_to_config(self):
@@ -83,4 +109,5 @@ class ConstraintsPage(QWizardPage):
             active = DEFAULT_CONSTRAINTS
         for val, cb in self.check_map.items():
             cb.setChecked(val in active)
+        self.clear_errors()  # marks from an earlier failed Next don't survive a re-entry
         self._update_status()

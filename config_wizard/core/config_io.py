@@ -20,8 +20,7 @@ _INPUT_TIME_FORMATS = (
 
 _INT_PATTERN = re.compile(r"^[+-]?\d+$")
 
-# Keys whose value the wizard writes back from a widget.
-# Anything loaded that is missing here survives untouched but cannot be edited in the UI.
+# In case the imported config has keys that are not present here are ignored are not editable.
 WIZARD_EDITABLE_KEYS = frozenset(
     {
         # Page 1 — route
@@ -33,6 +32,10 @@ WIZARD_EDITABLE_KEYS = frozenset(
         # Page 2 — algorithm
         "ALGORITHM_TYPE",
         "ARRIVAL_TIME",
+        "DELTA_FUEL",
+        "ROUTER_HDGS_SEGMENTS",
+        "ROUTER_HDGS_INCREMENTS_DEG",
+        "BOAT_SPEED_BOUNDARIES",
         "ISOCHRONE_NUMBER_OF_ROUTES",
         "ISOCHRONE_MINIMISATION_CRITERION",
         "ISOCHRONE_MAX_ROUTING_STEPS",
@@ -199,8 +202,13 @@ def normalize_config(raw):
                 warnings.append(f"{key}: ignored {dropped} malformed waypoint(s).")
             config[key] = waypoints
         elif key == "GENETIC_REPAIR_TYPE":
-            # config.py takes a List[str]; the wizard's combo holds a bare string.
-            config[key] = value[0] if isinstance(value, list) and value else value
+            config[key] = list(value) if isinstance(value, list) else [value]
+        elif key == "BOAT_SPEED_BOUNDARIES":
+            bounds = _normalize_speed_bounds(value)
+            if bounds is None:
+                warnings.append(f"{key}: expected [min, max] speeds — kept the default.")
+                continue
+            config[key] = bounds
         elif key == "CONSTRAINTS_LIST":
             config[key] = list(value) if isinstance(value, list) else config[key]
         elif key in BOOL_KEYS:
@@ -280,6 +288,17 @@ def _normalize_waypoints(value):
         except (TypeError, ValueError):
             dropped += 1
     return waypoints, dropped
+
+
+def _normalize_speed_bounds(value):
+    """Return ``[min, max]`` floats for BOAT_SPEED_BOUNDARIES, or None if unusable."""
+    if not isinstance(value, (list, tuple)) or len(value) != 2:
+        return None
+    try:
+        low, high = float(value[0]), float(value[1])
+    except (TypeError, ValueError):
+        return None
+    return [low, high] if low < high else None
 
 
 def _to_bool(value):

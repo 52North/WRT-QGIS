@@ -37,7 +37,6 @@ from .ui_kit import (
     COLOR_GRAY_BADGE,
     COLOR_MUTED,
     COLOR_PRIMARY,
-    COLOR_PRIMARY_SOFT,
     COLOR_SIDEBAR_BG,
     COLOR_TEXT,
     GLOBAL_QSS,
@@ -47,14 +46,14 @@ from .ui_kit import (
 
 
 class _StepRow(QFrame):
-    """A single clickable navigation step: numbered badge + label."""
+    """A single navigation step: numbered badge + label.
 
-    clicked = pyqtSignal(int)
+    Read-only — it reports where the user is, it does not move them. Navigation
+    is Back/Next only, so that every step is validated on the way through.
+    """
 
     def __init__(self, index, name, parent=None):
         super().__init__(parent)
-        self._index = index
-        self.setCursor(Qt.PointingHandCursor)
         self.setObjectName("StepRow")
 
         row = QHBoxLayout(self)
@@ -72,11 +71,6 @@ class _StepRow(QFrame):
         row.addWidget(self.name, 1)
         self.set_active(False)
 
-    def mousePressEvent(self, event):
-        if event.button() == Qt.LeftButton:
-            self.clicked.emit(self._index)
-        super().mousePressEvent(event)
-
     def set_active(self, active):
         if active:
             self.setStyleSheet("QFrame#StepRow { background: #ffffff; border-radius: 8px; }")
@@ -88,10 +82,8 @@ class _StepRow(QFrame):
                 f"color: {COLOR_PRIMARY}; font-weight: 600; font-size: 13px; background: transparent;"
             )
         else:
-            self.setStyleSheet(
-                "QFrame#StepRow { background: transparent; border-radius: 8px; }"
-                f"QFrame#StepRow:hover {{ background: {COLOR_PRIMARY_SOFT}; }}"
-            )
+            # No :hover tint — a hover effect would suggest the row is clickable.
+            self.setStyleSheet("QFrame#StepRow { background: transparent; border-radius: 8px; }")
             self.badge.setStyleSheet(
                 f"background: {COLOR_GRAY_BADGE}; color: {COLOR_MUTED}; border-radius: 13px;"
                 "font-weight: 600; font-size: 12px;"
@@ -102,7 +94,6 @@ class _StepRow(QFrame):
 
 
 class _StepSidebar(QWidget):
-    stepClicked = pyqtSignal(int)
     loadRequested = pyqtSignal()
 
     def __init__(self, steps, parent=None):
@@ -133,7 +124,6 @@ class _StepSidebar(QWidget):
         self._rows = []
         for index, name in enumerate(self._steps):
             row = _StepRow(index, name)
-            row.clicked.connect(self.stepClicked)
             self._rows.append(row)
             root.addWidget(row)
 
@@ -229,10 +219,7 @@ class WRTConfigWizard(QWizard):
             self._page_ids.append(page_id)
             self._page_by_id[page_id] = page
 
-        if self._sidebar is not None:
-            self._sidebar.stepClicked.connect(self._on_sidebar_step_clicked)
-
-        # Connect page changes to flush saves even when the user jumps steps.
+        # Persist a page's values whenever it is left, in either direction.
         self.currentIdChanged.connect(self._on_page_changed)
         self._current_page_id = self.currentId()
         self._sync_sidebar()
@@ -263,13 +250,8 @@ class WRTConfigWizard(QWizard):
         index = self._page_ids.index(current_id) if current_id in self._page_by_id else 0
         self._sidebar.set_current_step(index)
 
-    def _on_sidebar_step_clicked(self, target_index):
-        current_id = self.currentId()
-        if current_id in self._page_by_id:
-            self._save_page(current_id)
-        self._jump_to_step(target_index)
-
     def _jump_to_step(self, target_index):
+        """Walk to a step without checking pages on the way — used after a load."""
         current_index = (
             self._page_ids.index(self.currentId()) if self.currentId() in self._page_by_id else 0
         )

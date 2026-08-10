@@ -1,5 +1,7 @@
 """Page 2 — Algorithm selection & parameters."""
 
+import os
+
 from qgis.PyQt.QtCore import QDateTime, Qt
 from qgis.PyQt.QtWidgets import (
     QCheckBox,
@@ -16,12 +18,12 @@ from qgis.PyQt.QtWidgets import (
     QStackedWidget,
     QVBoxLayout,
     QWidget,
-    QWizardPage,
 )
 
 from ..core.defaults import (
     ALGORITHM_OPTIONS,
     DEFAULT_ALGORITHM,
+    DEFAULTS,
     GENETIC_CROSSOVER_PATCHER_OPTIONS,
     GENETIC_INTENT_CROSSOVER,
     GENETIC_INTENT_OPTIONS,
@@ -45,6 +47,7 @@ from ..ui.ui_kit import (
     opt_label,
     page_header,
 )
+from ..ui.validation import FieldError, ValidatedPage
 
 # Fixed stack position for each algorithm.
 _ALGO_STACK = {
@@ -85,7 +88,7 @@ def _combo(options):
     return c
 
 
-class AlgorithmPage(QWizardPage):
+class AlgorithmPage(ValidatedPage):
     def __init__(self, config, parent=None):
         super().__init__(parent)
         self.config = config
@@ -199,6 +202,20 @@ class AlgorithmPage(QWizardPage):
         self.iso_prune_half = ispin(val=91, mn=1, mx=180)
         self.iso_prune_segs = ispin(val=20, mn=1)
         self.iso_prune_sym = _combo(SYMMETRY_AXIS_OPTIONS)
+        self.iso_delta_fuel = ispin(val=3000, mn=1, mx=9999999)
+        self.iso_hdgs_segments = ispin(
+            val=30, mn=2
+        )  # ROUTER_HDGS_SEGMENTS accepts only even values.
+        self.iso_hdgs_segments.setSingleStep(2)
+        self.iso_hdgs_increments = ispin(val=6, mn=1, mx=180)
+        adv.addRow(opt_label("Fuel per routing step (kg)", "DELTA_FUEL"), self.iso_delta_fuel)
+        adv.addRow(
+            opt_label("Heading segments (even)", "ROUTER_HDGS_SEGMENTS"), self.iso_hdgs_segments
+        )
+        adv.addRow(
+            opt_label("Heading increment (°)", "ROUTER_HDGS_INCREMENTS_DEG"),
+            self.iso_hdgs_increments,
+        )
         adv.addRow(
             opt_label("Minimisation criterion", "ISOCHRONE_MINIMISATION_CRITERION"),
             self.iso_min_crit,
@@ -288,7 +305,7 @@ class AlgorithmPage(QWizardPage):
         self.gen_sched.currentIndexChanged.connect(self._refresh_genetic_visibility)
         sched_form.addRow(opt_label("Fix via"), self.gen_sched)
         self.gen_sched_speed = dspin(val=6.17, suffix="m/s", mx=60, dec=3)
-        self.gen_sched_speed_lbl = opt_label("Boat speed", "BOAT_SPEED")
+        self.gen_sched_speed_lbl = opt_label("Boat speed", "Keep it around 7–12 m/s (≈14–23 knots)")
         self.gen_sched_arrival = QDateTimeEdit()
         self.gen_sched_arrival.setDisplayFormat("dd/MM/yyyy - hh:mm AP")
         self.gen_sched_arrival.setCalendarPopup(True)
@@ -307,7 +324,9 @@ class AlgorithmPage(QWizardPage):
         self.gen_sw_arrival = QDateTimeEdit()
         self.gen_sw_arrival.setDisplayFormat("dd/MM/yyyy - hh:mm AP")
         self.gen_sw_arrival.setCalendarPopup(True)
-        sw_form.addRow(opt_label("Boat speed", "BOAT_SPEED"), self.gen_sw_speed)
+        sw_form.addRow(
+            opt_label("Boat speed", "Keep it around 7–12 m/s (≈14–23 knots)"), self.gen_sw_speed
+        )
         sw_form.addRow(opt_label("Arrival time", "ARRIVAL_TIME"), self.gen_sw_arrival)
         v.addWidget(self.gen_sw_box)
 
@@ -317,8 +336,30 @@ class AlgorithmPage(QWizardPage):
         s_form.setLabelAlignment(Qt.AlignRight)
         s_form.setSpacing(8)
         self.gen_s_speed = dspin(val=6.17, suffix="m/s", mx=60, dec=3)
-        s_form.addRow(opt_label("Boat speed", "BOAT_SPEED"), self.gen_s_speed)
+        s_form.addRow(
+            opt_label("Boat speed", "Keep it around 7–12 m/s (≈14–23 knots)"), self.gen_s_speed
+        )
         v.addWidget(self.gen_s_box)
+
+        self.gen_bounds_box = QGroupBox("Speed boundaries")
+        bounds_v = QVBoxLayout(self.gen_bounds_box)
+        bounds_v.setSpacing(8)
+        bounds_hint = QLabel(
+            "The initial population is spread across this range and speed mutations are "
+            "clamped to it, so the boat speed above must fall inside it."
+        )
+        bounds_hint.setWordWrap(True)
+        bounds_hint.setStyleSheet(f"color: {COLOR_MUTED}; font-size: 11px;")
+        bounds_v.addWidget(bounds_hint)
+        bounds_form = QFormLayout()
+        bounds_form.setLabelAlignment(Qt.AlignRight)
+        bounds_form.setSpacing(8)
+        self.gen_speed_min = dspin(val=1.0, suffix="m/s", mx=60, dec=3)
+        self.gen_speed_max = dspin(val=10.0, suffix="m/s", mx=60, dec=3)
+        bounds_form.addRow(opt_label("Minimum speed", "BOAT_SPEED_BOUNDARIES"), self.gen_speed_min)
+        bounds_form.addRow(opt_label("Maximum speed", "BOAT_SPEED_BOUNDARIES"), self.gen_speed_max)
+        bounds_v.addLayout(bounds_form)
+        v.addWidget(self.gen_bounds_box)
 
         # Advanced parameters
         adv = QFormLayout(self._advanced_section(v))
@@ -341,7 +382,8 @@ class AlgorithmPage(QWizardPage):
         pop_path_row.addWidget(self.gen_pop_path)
         pop_path_row.addWidget(gen_pop_browse)
         self.gen_pop_path_lbl = opt_label("Population path (GeoJSON)", "GENETIC_POPULATION_PATH")
-        self.gen_repair = _combo(GENETIC_REPAIR_OPTIONS)
+        # config.py takes a List[str] here, and its own default is two of the three options.
+        self.gen_repair_row, self.gen_repair_boxes = self._build_repair_checks()
         self.gen_crossover_patcher = _combo(GENETIC_CROSSOVER_PATCHER_OPTIONS)
         self.gen_fix_seed = QCheckBox("Fix random seed (GENETIC_FIX_RANDOM_SEED)")
         adv.addRow(opt_label("Offsprings", "GENETIC_NUMBER_OFFSPRINGS"), self.gen_offsprings)
@@ -349,13 +391,66 @@ class AlgorithmPage(QWizardPage):
         adv.addRow(opt_label("Mutation type", "GENETIC_MUTATION_TYPE"), self.gen_mutation)
         adv.addRow(opt_label("Population type", "GENETIC_POPULATION_TYPE"), self.gen_pop_type)
         adv.addRow(self.gen_pop_path_lbl, self.gen_pop_path_row)
-        adv.addRow(opt_label("Repair strategy", "GENETIC_REPAIR_TYPE"), self.gen_repair)
+        adv.addRow(opt_label("Repair strategy", "GENETIC_REPAIR_TYPE"), self.gen_repair_row)
         adv.addRow(
             opt_label("Crossover patcher", "GENETIC_CROSSOVER_PATCHER"), self.gen_crossover_patcher
         )
         adv.addRow(self.gen_fix_seed)
         v.addStretch()
         return w
+
+    def _build_repair_checks(self):
+        """A checkbox per repair strategy — config.py takes a List[str], not one value.
+
+        Returns ``(row_widget, {value: checkbox})``.
+        """
+        row = QWidget()
+        layout = QHBoxLayout(row)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(12)
+        boxes = {}
+        for val, label in GENETIC_REPAIR_OPTIONS:
+            box = QCheckBox(label.replace(" (default)", ""))
+            box.toggled.connect(lambda checked, v=val: self._on_repair_toggled(v, checked))
+            boxes[val] = box
+            layout.addWidget(box)
+        layout.addStretch(1)
+        return row, boxes
+
+    def _on_repair_toggled(self, value, is_checked):
+        """Keep 'no_repair' mutually exclusive with the real repair strategies.
+
+        config.py raises if 'no_repair' is paired with anything else, so enforce it in the
+        UI rather than letting the user build a config that cannot run.
+        """
+        if not is_checked:
+            return
+        others = [val for val in self.gen_repair_boxes if val != value]
+        turn_off = (
+            others if value == "no_repair" else (["no_repair"] if "no_repair" in others else [])
+        )
+        for val in turn_off:
+            box = self.gen_repair_boxes[val]
+            box.blockSignals(True)
+            box.setChecked(False)
+            box.blockSignals(False)
+
+    def _repair_types(self):
+        """The checked repair strategies, in GENETIC_REPAIR_OPTIONS order."""
+        return [val for val, box in self.gen_repair_boxes.items() if box.isChecked()]
+
+    def _set_repair_types(self, value):
+        """Restore the repair checkboxes from a config value (list, or a legacy string)."""
+        if isinstance(value, str):
+            active = [value]
+        elif value:
+            active = list(value)
+        else:
+            active = list(DEFAULTS["GENETIC_REPAIR_TYPE"])
+        for val, box in self.gen_repair_boxes.items():
+            box.blockSignals(True)
+            box.setChecked(val in active)
+            box.blockSignals(False)
 
     def _build_gcr_slider_page(self):
         w = QWidget()
@@ -481,6 +576,67 @@ class AlgorithmPage(QWizardPage):
         label = _ALGO_LABELS.get(algo, algo)
         self.status.set_ok(f"Algorithm configured — {label}")
 
+    # Validation — runs when Next is pressed, never while typing
+    def validation_errors(self):
+        """Only report what WRT's own config validators would reject."""
+        algo = self._current_algo()
+        errors = []
+
+        # Only 'genetic' shows these inputs; 'genetic_shortest_route' runs on the defaults,
+        # so there is nothing on screen for the user to fix.
+        if algo == "genetic":
+            # config.py resolves GENETIC_POPULATION_PATH against the filesystem.
+            if self.gen_pop_type.currentData() == "from_geojson":
+                path = self.gen_pop_path.text().strip()
+                if not path:
+                    errors.append(
+                        FieldError("a population GeoJSON path is required", self.gen_pop_path)
+                    )
+                elif not os.path.isdir(path):
+                    errors.append(
+                        FieldError(
+                            "the population path must be an existing directory",
+                            self.gen_pop_path,
+                        )
+                    )
+            if not self._repair_types():
+                errors.append(
+                    FieldError("at least one repair strategy is required", self.gen_repair_row)
+                )
+            errors += self._speed_bound_errors()
+        elif algo in ("isofuel", "speedy_isobased"):
+            # config.py rejects an odd ROUTER_HDGS_SEGMENTS outright.
+            if self.iso_hdgs_segments.value() % 2:
+                errors.append(
+                    FieldError("heading segments must be an even number", self.iso_hdgs_segments)
+                )
+        return errors
+
+    def _speed_bound_errors(self):
+        """Boundaries must bracket the speed the genetic operators start from."""
+        low, high = self.gen_speed_min.value(), self.gen_speed_max.value()
+        if low >= high:
+            return [FieldError("the minimum speed must be below the maximum", self.gen_speed_min)]
+        # Only the speed-optimising intents read the boundaries.
+        intent = self.gen_intent.currentData() or "speed_waypoints"
+        if intent == "waypoints":
+            return []
+        speed = (self.gen_s_speed if intent == "speed" else self.gen_sw_speed).value()
+        if not low <= speed <= high:
+            return [
+                FieldError(
+                    f"the boat speed ({speed:g} m/s) must be within the speed boundaries",
+                    self.gen_speed_min,
+                )
+            ]
+        return []
+
+    def _reveal(self, widget):
+        # Everything worth reporting here sits behind the Advanced tick.
+        if not self.adv_check.isChecked():
+            self.adv_check.setChecked(True)
+        super()._reveal(widget)
+
     def _set_mutation_options(self, options):
         current = self.gen_mutation.currentData()
         self.gen_mutation.blockSignals(True)
@@ -515,6 +671,8 @@ class AlgorithmPage(QWizardPage):
         self.gen_sched_arrival_lbl.setVisible(is_waypoints and via == "via_arrival")
         self.gen_sw_box.setVisible(is_sw)
         self.gen_s_box.setVisible(is_speed)
+        # Boundaries are only read when the speed is optimised.
+        self.gen_bounds_box.setVisible(is_sw or is_speed)
 
         # Mutation options restricted to the intent's valid subset.
         if intent == "waypoints":
@@ -553,44 +711,53 @@ class AlgorithmPage(QWizardPage):
         c["ISOCHRONE_PRUNE_SECTOR_DEG_HALF"] = self.iso_prune_half.value()
         c["ISOCHRONE_PRUNE_SEGMENTS"] = self.iso_prune_segs.value()
         c["ISOCHRONE_PRUNE_SYMMETRY_AXIS"] = self.iso_prune_sym.currentData()
+        c["DELTA_FUEL"] = self.iso_delta_fuel.value()
+        c["ROUTER_HDGS_SEGMENTS"] = self.iso_hdgs_segments.value()
+        c["ROUTER_HDGS_INCREMENTS_DEG"] = self.iso_hdgs_increments.value()
         # Genetic — derive forced params from the optimisation intent.
         intent = self.gen_intent.currentData() or "speed_waypoints"
         c["_GENETIC_INTENT"] = intent
         c["GENETIC_NUMBER_GENERATIONS"] = self.gen_generations.value()
         c["GENETIC_CROSSOVER_TYPE"] = GENETIC_INTENT_CROSSOVER.get(intent, "random")
         c["GENETIC_MUTATION_TYPE"] = self.gen_mutation.currentData()
+        c["BOAT_SPEED_BOUNDARIES"] = [self.gen_speed_min.value(), self.gen_speed_max.value()]
         obj = {}
         if intent in ("waypoints", "speed_waypoints"):
             obj["fuel_consumption"] = self.gen_obj_fuel.value()
         if intent in ("speed_waypoints", "speed"):
             obj["arrival_time"] = self.gen_obj_arrival.value()
         c["GENETIC_OBJECTIVES"] = obj
-        # Speed / arrival time per intent — all set here; Boat page never touches these for genetic.
-        if intent == "waypoints":
-            sched = self.gen_sched.currentData() or "via_speed"
-            c["_GENETIC_SCHEDULE"] = sched
-            if sched == "via_speed":
-                c["BOAT_SPEED"] = self.gen_sched_speed.value()
-                c["ARRIVAL_TIME"] = ""
-            else:
+
+        # Held here just for genetic algorithm, the other algorithms don't have these parameters.
+        if self._current_algo() == "genetic":
+            if intent == "waypoints":
+                sched = self.gen_sched.currentData() or "via_speed"
+                c["_GENETIC_SCHEDULE"] = sched
+                if sched == "via_speed":
+                    c["BOAT_SPEED"] = self.gen_sched_speed.value()
+                    c["ARRIVAL_TIME"] = ""
+                else:
+                    c["ARRIVAL_TIME"] = (
+                        self.gen_sched_arrival.dateTime().toUTC().toString("yyyy-MM-ddTHH:mm") + "Z"
+                    )
+            elif intent == "speed_waypoints":
+                c["_GENETIC_SCHEDULE"] = "via_speed"
+                c["BOAT_SPEED"] = self.gen_sw_speed.value()
                 c["ARRIVAL_TIME"] = (
-                    self.gen_sched_arrival.dateTime().toUTC().toString("yyyy-MM-ddTHH:mm") + "Z"
+                    self.gen_sw_arrival.dateTime().toUTC().toString("yyyy-MM-ddTHH:mm") + "Z"
                 )
-        elif intent == "speed_waypoints":
+            else:  # speed
+                c["_GENETIC_SCHEDULE"] = "via_speed"
+                c["BOAT_SPEED"] = self.gen_s_speed.value()
+                c["ARRIVAL_TIME"] = ""
+        else:
             c["_GENETIC_SCHEDULE"] = "via_speed"
-            c["BOAT_SPEED"] = self.gen_sw_speed.value()
-            c["ARRIVAL_TIME"] = (
-                self.gen_sw_arrival.dateTime().toUTC().toString("yyyy-MM-ddTHH:mm") + "Z"
-            )
-        else:  # speed
-            c["_GENETIC_SCHEDULE"] = "via_speed"
-            c["BOAT_SPEED"] = self.gen_s_speed.value()
             c["ARRIVAL_TIME"] = ""
         c["GENETIC_NUMBER_OFFSPRINGS"] = self.gen_offsprings.value()
         c["GENETIC_POPULATION_SIZE"] = self.gen_pop_size.value()
         c["GENETIC_POPULATION_TYPE"] = self.gen_pop_type.currentData()
         c["GENETIC_POPULATION_PATH"] = self.gen_pop_path.text()
-        c["GENETIC_REPAIR_TYPE"] = self.gen_repair.currentData()
+        c["GENETIC_REPAIR_TYPE"] = self._repair_types()
         c["GENETIC_CROSSOVER_PATCHER"] = self.gen_crossover_patcher.currentData()
         c["GENETIC_FIX_RANDOM_SEED"] = self.gen_fix_seed.isChecked()
         # GCR Slider
@@ -641,6 +808,9 @@ class AlgorithmPage(QWizardPage):
         self.iso_prune_sym.setCurrentIndex(
             self._find_combo_idx(self.iso_prune_sym, c.get("ISOCHRONE_PRUNE_SYMMETRY_AXIS", "gcr"))
         )
+        self.iso_delta_fuel.setValue(int(c.get("DELTA_FUEL") or 3000))
+        self.iso_hdgs_segments.setValue(int(c.get("ROUTER_HDGS_SEGMENTS") or 30))
+        self.iso_hdgs_increments.setValue(int(c.get("ROUTER_HDGS_INCREMENTS_DEG") or 6))
         # Genetic — restore the optimisation intent (infer for legacy configs).
         intent = c.get("_GENETIC_INTENT")
         if not intent:
@@ -661,6 +831,9 @@ class AlgorithmPage(QWizardPage):
         self.gen_sched_speed.setValue(raw_speed)
         self.gen_sw_speed.setValue(raw_speed)
         self.gen_s_speed.setValue(raw_speed)
+        bounds = c.get("BOAT_SPEED_BOUNDARIES") or DEFAULTS["BOAT_SPEED_BOUNDARIES"]
+        self.gen_speed_min.setValue(float(bounds[0]))
+        self.gen_speed_max.setValue(float(bounds[1]))
         arr_str = c.get("ARRIVAL_TIME", "")
         if arr_str:
             arr_dt = QDateTime.fromString(arr_str, "yyyy-MM-ddTHH:mmZ")
@@ -682,9 +855,7 @@ class AlgorithmPage(QWizardPage):
         )
         self.gen_pop_type.blockSignals(False)
         self.gen_pop_path.setText(c.get("GENETIC_POPULATION_PATH", ""))
-        self.gen_repair.setCurrentIndex(
-            self._find_combo_idx(self.gen_repair, c.get("GENETIC_REPAIR_TYPE", "waypoints_infill"))
-        )
+        self._set_repair_types(c.get("GENETIC_REPAIR_TYPE"))
         self.gen_crossover_patcher.setCurrentIndex(
             self._find_combo_idx(
                 self.gen_crossover_patcher, c.get("GENETIC_CROSSOVER_PATCHER", "isofuel")

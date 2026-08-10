@@ -20,6 +20,7 @@ DEFAULTS = {
     "BOAT_BREADTH": "",
     "BOAT_TYPE": "direct_power_method",
     "BOAT_SPEED": 7.0,  # m/s
+    "BOAT_SPEED_BOUNDARIES": [1.0, 10.0],  # [min, max] m/s
     "BOAT_FUEL_RATE": "",
     "BOAT_HBR": "",
     "BOAT_SMCR_POWER": "",
@@ -71,7 +72,7 @@ DEFAULTS = {
     "GENETIC_NUMBER_OFFSPRINGS": 2,
     "GENETIC_POPULATION_SIZE": 20,
     "GENETIC_POPULATION_TYPE": "isofuel",
-    "GENETIC_REPAIR_TYPE": "waypoints_infill",
+    "GENETIC_REPAIR_TYPE": ["waypoints_infill", "constraint_violation"],
     "GENETIC_MUTATION_TYPE": "random",
     "GENETIC_CROSSOVER_TYPE": "random",
     "GENETIC_CROSSOVER_PATCHER": "isofuel",
@@ -108,6 +109,16 @@ BOAT_TYPE_OPTIONS = [
     ("speedy_isobased", "Speedy isobased (testing only)"),
 ]
 
+# Ship config defaults, just to pass ShipConfig validation.
+SHIP_DEFAULTS = {
+    "BOAT_LENGTH": 1,
+    "BOAT_BREADTH": 1,
+    "BOAT_HBR": 0,
+    "BOAT_SMCR_POWER": 1,
+    "BOAT_SMCR_SPEED": 0,
+    "BOAT_FUEL_RATE": 0,
+}
+
 CONSTRAINT_OPTIONS = [
     ("land_crossing_global_land_mask", "Land crossing (global land mask)"),
     ("water_depth", "Water depth"),
@@ -124,6 +135,7 @@ PRUNE_GROUP_OPTIONS = [
     ("larger_direction", "Larger direction (default)"),
     ("courses", "Courses"),
     ("branch", "Branch"),
+    ("multiple_routes", "Multiple routes"),
 ]
 
 SYMMETRY_AXIS_OPTIONS = [
