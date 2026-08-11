@@ -645,6 +645,16 @@ class VisualizerPanel(QDockWidget):
 
         self._refresh_readouts()
 
+    def snap_boat_to_route_start(self):
+        if self._waypoints:
+            self._route_index = 0
+            self._move_boat(self._waypoints[0])
+
+    def snap_boat_to_route_end(self):
+        if self._waypoints:
+            self._route_index = len(self._waypoints) - 1
+            self._move_boat(self._waypoints[-1])
+
     def _move_boat(self, waypoint):
         layer = self._boat_layer
         if layer is None or self._boat_fid is None:

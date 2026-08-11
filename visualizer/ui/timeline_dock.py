@@ -65,6 +65,8 @@ class TimelineDock(QDockWidget):
     """Drives the shared clock. Emits the index into ``Timeline.steps``."""
 
     time_changed = pyqtSignal(int)
+    first_frame_requested = pyqtSignal()
+    last_frame_requested = pyqtSignal()
 
     def __init__(self, timeline, parent=None):
         super().__init__("Timeline", parent)
@@ -278,6 +280,7 @@ class TimelineDock(QDockWidget):
 
     def _jump_to(self, target):
         self._emit(self._last() if target == -1 else 0)
+        (self.last_frame_requested if target == -1 else self.first_frame_requested).emit()
 
     def _toggle_play(self):
         if self._timer.isActive():

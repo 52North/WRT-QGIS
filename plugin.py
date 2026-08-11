@@ -86,6 +86,8 @@ class WRTPlugin:
         self._timeline_dock = TimelineDock(timeline)
 
         self._timeline_dock.time_changed.connect(self._panel.on_time_changed)
+        self._timeline_dock.first_frame_requested.connect(self._panel.snap_boat_to_route_start)
+        self._timeline_dock.last_frame_requested.connect(self._panel.snap_boat_to_route_end)
         self._panel.closed.connect(self._timeline_dock.close)
         self._panel.sources_changed.connect(self._on_sources_changed)
 
