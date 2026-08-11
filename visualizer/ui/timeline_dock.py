@@ -34,9 +34,9 @@ _MIN_DOCK_HEIGHT = 140
 _MAX_DOCK_HEIGHT = 260
 
 _QSS = f"""
-QLabel#Date {{ font-family: {MONO_FAMILY}; font-size: 20px; font-weight: 600;
+QSpinBox#Date {{ font-family: {MONO_FAMILY}; font-size: 20px; font-weight: 600;
                color: {COLOR_TEXT}; }}
-QLabel#Clock {{ font-family: {MONO_FAMILY}; font-size: 20px; font-weight: 600;
+QSpinBox#Clock {{ font-family: {MONO_FAMILY}; font-size: 20px; font-weight: 600;
                 color: {PROGRESS}; }}
 QLabel#Zone, QLabel#Day {{ font-size: 11px; color: {COLOR_MUTED}; }}
 QLabel#Axis, QLabel#Legend {{ font-family: {MONO_FAMILY}; font-size: 10px;
@@ -47,6 +47,38 @@ QPushButton#Loop {{ border: 1px solid {COLOR_BORDER}; border-radius: 6px;
 QPushButton#Loop:checked {{ border: 1px solid {PROGRESS}; background: #e7f0fd;
                             color: {PROGRESS}; font-weight: 600; }}
 """
+
+
+class _IndexSpinBox(QSpinBox):
+    """A QSpinBox whose value indexes into a list of display strings.
+
+    The arrows and mouse wheel step through exactly the given options —
+    never an out-of-range or non-existent date/time.
+    """
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._labels = []
+        self.setRange(0, 0)
+        self.setEnabled(False)
+        self.setAlignment(Qt.AlignHCenter | Qt.AlignVCenter)
+        self.lineEdit().setReadOnly(True)
+        self.setContextMenuPolicy(Qt.NoContextMenu)
+
+    def set_labels(self, labels, current=0):
+        """Replace the valid options and select ``current`` without emitting."""
+        self._labels = labels
+        self.blockSignals(True)
+        self.setRange(0, max(len(labels) - 1, 0))
+        self.setValue(min(max(current, 0), self.maximum()))
+        self.blockSignals(False)
+        self.setEnabled(bool(labels))
+
+    def textFromValue(self, value):
+        return self._labels[value] if 0 <= value < len(self._labels) else ""
+
+    def valueFromText(self, text):
+        return self._labels.index(text) if text in self._labels else self.value()
 
 
 def _swatch(color, gradient_end=None):
@@ -72,6 +104,8 @@ class TimelineDock(QDockWidget):
         super().__init__("Timeline", parent)
         self._timeline = timeline
         self._index = 0
+        self._goto_dates = []
+        self._goto_time_indices = []
 
         self._timer = QTimer(self)
         self._timer.timeout.connect(self._on_timer_tick)
@@ -121,15 +155,23 @@ class TimelineDock(QDockWidget):
         transport.insertWidget(1, self._play_btn)
         row.addLayout(transport)
 
-        self._date_label = QLabel("—")
-        self._date_label.setObjectName("Date")
-        self._clock_label = QLabel("")
-        self._clock_label.setObjectName("Clock")
+        self._date_spin = _IndexSpinBox()
+        self._date_spin.setObjectName("Date")
+        self._date_spin.setToolTip("Scroll to jump between dates")
+        self._date_spin.setMinimumWidth(118)
+        self._date_spin.valueChanged.connect(self._on_date_spin_changed)
+
+        self._time_spin = _IndexSpinBox()
+        self._time_spin.setObjectName("Clock")
+        self._time_spin.setToolTip("Scroll to jump between times on this date")
+        self._time_spin.setMinimumWidth(78)
+        self._time_spin.valueChanged.connect(self._on_time_spin_changed)
+
         zone = QLabel("UTC")
         zone.setObjectName("Zone")
         self._day_label = QLabel("")
         self._day_label.setObjectName("Day")
-        for widget in (self._date_label, self._clock_label, zone, self._day_label):
+        for widget in (self._date_spin, self._time_spin, zone, self._day_label):
             row.addWidget(widget, 0, Qt.AlignBottom)
 
         row.addStretch()
@@ -241,15 +283,17 @@ class TimelineDock(QDockWidget):
     def _sync_readout(self):
         steps = self._timeline.steps
         if not steps:
-            self._date_label.setText("—")
-            self._clock_label.setText("")
+            self._goto_dates = []
+            self._goto_time_indices = []
+            self._date_spin.set_labels([])
+            self._time_spin.set_labels([])
             self._day_label.setText("")
             self._context_label.setText("")
             return
 
         stamp = steps[self._index]
-        self._date_label.setText(stamp.toString(_DATE_FORMAT))
-        self._clock_label.setText(stamp.toString(_CLOCK_FORMAT))
+        self._sync_date_spin(stamp)
+        self._sync_time_spin(stamp)
         day, total = self._timeline.day_of(stamp)
         self._day_label.setText(f"day {day} of {total}")
 
@@ -261,6 +305,22 @@ class TimelineDock(QDockWidget):
             self._context_label.setText(f"Before waypoint 1 / {route_count}")
         else:
             self._context_label.setText("")
+
+    def _sync_date_spin(self, stamp):
+        self._goto_dates = self._timeline.dates()
+        current = next((i for i, date in enumerate(self._goto_dates) if date == stamp.date()), 0)
+        labels = [date.toString(_DATE_FORMAT) for date in self._goto_dates]
+        self._date_spin.set_labels(labels, current)
+
+    def _sync_time_spin(self, stamp):
+        self._goto_time_indices = self._timeline.indices_on_date(stamp.date())
+        current = (
+            self._goto_time_indices.index(self._index)
+            if self._index in self._goto_time_indices
+            else 0
+        )
+        labels = [self._timeline.steps[i].toString(_CLOCK_FORMAT) for i in self._goto_time_indices]
+        self._time_spin.set_labels(labels, current)
 
     # playback
 
@@ -281,6 +341,18 @@ class TimelineDock(QDockWidget):
     def _jump_to(self, target):
         self._emit(self._last() if target == -1 else 0)
         (self.last_frame_requested if target == -1 else self.first_frame_requested).emit()
+
+    # goto
+
+    def _on_date_spin_changed(self, value):
+        if 0 <= value < len(self._goto_dates):
+            indices = self._timeline.indices_on_date(self._goto_dates[value])
+            if indices:
+                self._emit(indices[0])
+
+    def _on_time_spin_changed(self, value):
+        if 0 <= value < len(self._goto_time_indices):
+            self._emit(self._goto_time_indices[value])
 
     def _toggle_play(self):
         if self._timer.isActive():

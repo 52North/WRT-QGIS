@@ -128,3 +128,20 @@ class Timeline:
         start, end = self._steps[0], self._steps[-1]
         total = start.date().daysTo(end.date()) + 1
         return (start.date().daysTo(stamp.date()) + 1, total)
+
+    def dates(self):
+        """Distinct calendar dates covered by ``steps``, in order."""
+        result = []
+        seen_days = set()
+        for stamp in self._steps:
+            date = stamp.date()
+            julian = date.toJulianDay()
+            if julian not in seen_days:
+                seen_days.add(julian)
+                result.append(date)
+        return result
+
+    def indices_on_date(self, date):
+        """Indices into ``steps`` whose stamp falls on ``date``, in order."""
+        julian = date.toJulianDay()
+        return [i for i, stamp in enumerate(self._steps) if stamp.date().toJulianDay() == julian]
