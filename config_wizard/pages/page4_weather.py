@@ -20,7 +20,6 @@ from qgis.PyQt.QtWidgets import (
     QStyle,
     QVBoxLayout,
     QWidget,
-    QWizardPage,
 )
 
 from ..core.netcdf_validation import InspectNetcdfTask, check_coverage
@@ -40,6 +39,7 @@ from ..ui.ui_kit import (
     opt_label,
     page_header,
 )
+from ..ui.validation import FieldError, ValidatedPage
 
 # Drop-zone and badge background tints per validation state.
 ZONE_BG_NEUTRAL = "#f8f9fb"
@@ -251,7 +251,7 @@ class FileField(QFrame):
     def dropEvent(self, event):
         path = self._drop_path(event)
         if path:
-            self.path_edit.setText(path)  # fires validation → repaints the zone
+            self.path_edit.setText(path)  # fires validation -> repaints the zone
             event.acceptProposedAction()
         else:
             self.set_state(*self._last)
@@ -263,7 +263,7 @@ class FileField(QFrame):
         self.path_edit.setText(t)
 
 
-class WeatherPage(QWizardPage):
+class WeatherPage(ValidatedPage):
     def __init__(self, config, parent=None):
         super().__init__(parent)
         self.config = config
@@ -311,6 +311,14 @@ class WeatherPage(QWizardPage):
         )
         self.depth_field.path_edit.textChanged.connect(self._on_depth_changed)
         root.addWidget(self.depth_field)
+
+        depth_note = QLabel(
+            "Leave this empty to have the routing tool download bathymetry for your "
+            "map area into the route output folder on the first run."
+        )
+        depth_note.setWordWrap(True)
+        depth_note.setStyleSheet(f"color: {COLOR_MUTED}; font-size: 11px;")
+        root.addWidget(depth_note)
 
         time_box = QGroupBox("Forecast time parameters")
         time_form = QFormLayout(time_box)
@@ -419,8 +427,7 @@ class WeatherPage(QWizardPage):
             self._apply_result(field, kind, False, "File not found", False)
             return
 
-        # Reuse a cached inspection for the same path (e.g. re-selecting the same
-        # file) — only the cheap coverage check runs, on the UI thread.
+        # If the path is unchanged and we have a cached inspection, reuse it.
         if self._info_path.get(kind) == path and self._info.get(kind) is not None:
             self._set_loading(kind, False)
             state, msg, warn = self._check_coverage(self._info[kind], require_time)
@@ -479,7 +486,6 @@ class WeatherPage(QWizardPage):
             self._depth_valid = state
         field.set_state(state, message, warn)
         self._update_status()
-        self.completeChanged.emit()
 
     def _set_loading(self, kind, on):
         if kind == "weather":
@@ -487,7 +493,6 @@ class WeatherPage(QWizardPage):
         else:
             self._depth_loading = on
         self._update_status()
-        self.completeChanged.emit()
 
     def _forget_info(self, kind):
         self._info[kind] = None
@@ -504,7 +509,7 @@ class WeatherPage(QWizardPage):
             if self._depth_valid is True:
                 self.status.set_ok("Weather & depth datasets validated")
             else:
-                self.status.set_ok("Weather dataset validated (no bathymetry)")
+                self.status.set_ok("Weather dataset validated — bathymetry will be downloaded")
             return
         if self._weather_valid is not True:
             self.status.set_pending("Provide valid weather data to continue")
@@ -519,11 +524,18 @@ class WeatherPage(QWizardPage):
     def _on_depth_changed(self, text):
         self._validate_depth(text.strip())
 
-    def isComplete(self):
+    # Validation — runs when Next is pressed. Datasets validation is also checked on-the-fly, but this is the final gate.
+    def validation_errors(self):
         if self._weather_loading or self._depth_loading:
-            return False
-        depth_ok = self._depth_valid is True or self._depth_valid is None
-        return self._weather_valid is True and depth_ok
+            return [FieldError("the datasets are still being checked — try again in a moment")]
+        errors = []
+        if self._weather_valid is None:
+            errors.append(FieldError("weather data is required"))
+        elif self._weather_valid is False:
+            errors.append(FieldError("the weather file is not usable — see the card above"))
+        if self._depth_valid is False:
+            errors.append(FieldError("the bathymetry file is not usable — fix or clear it"))
+        return errors
 
     # Config persistence
     def save_to_config(self):

@@ -14,13 +14,14 @@ from qgis.PyQt.QtWidgets import (
     QStackedWidget,
     QVBoxLayout,
     QWidget,
-    QWizardPage,
 )
 
 from ..core.defaults import (
     ALGO_BOAT_COMPAT,
     ALGO_BOAT_COMPAT_DEFAULT,
     BOAT_TYPE_OPTIONS,
+    DEFAULT_ALGORITHM,
+    SHIP_DEFAULTS,
 )
 from ..ui.ui_kit import (
     COLOR_MUTED,
@@ -30,11 +31,11 @@ from ..ui.ui_kit import (
     dspin,
     field_label,
     ispin,
-    join_terms,
     opt_label,
     page_header,
     req_label,
 )
+from ..ui.validation import FieldError, ValidatedPage
 
 _BOAT_TYPE_LABELS = dict(BOAT_TYPE_OPTIONS)
 
@@ -100,11 +101,12 @@ ADV_KEYS = [
 ]
 
 
-class BoatPage(QWizardPage):
+class BoatPage(ValidatedPage):
+    STATUS_HINT = "Choose the boat type and fill in its parameters, then press Next"
+
     def __init__(self, config, parent=None):
         super().__init__(parent)
         self.config = config
-        self.status = None
         self._build_ui()
 
     # UI construction
@@ -129,7 +131,6 @@ class BoatPage(QWizardPage):
         self.status = StatusLine()
         sw.addWidget(self.status)
         outer.addWidget(status_wrap)
-        self.completeChanged.connect(self._update_status)
 
         root.addWidget(
             page_header(
@@ -152,7 +153,6 @@ class BoatPage(QWizardPage):
         speed_tip = "Typical merchant-ship cruising speed is around 7–12 m/s (≈14–23 knots)."
         self.speed_label.setToolTip(speed_tip)
         self.speed_ms.setToolTip(speed_tip)
-        self.speed_ms.valueChanged.connect(self.completeChanged)
         root.addWidget(self.speed_ms)
 
         # Shown instead of the speed field for all genetic intents (speed is set on the Algorithm step).
@@ -229,15 +229,6 @@ class BoatPage(QWizardPage):
         self.dp_smcr_speed = dspin(dec=3, suffix="m/s")
         self.dp_fuel_rate = dspin(suffix="g/kWh", mx=9999)
         self.dp_hbr = dspin(suffix="m")
-        for x in (
-            self.dp_length,
-            self.dp_breadth,
-            self.dp_smcr_power,
-            self.dp_smcr_speed,
-            self.dp_fuel_rate,
-            self.dp_hbr,
-        ):
-            x.valueChanged.connect(self.completeChanged)
         form.addRow(req_label("Length overall"), self.dp_length)
         form.addRow(req_label("Breadth"), self.dp_breadth)
         form.addRow(req_label("SMCR power"), self.dp_smcr_power)
@@ -311,36 +302,35 @@ class BoatPage(QWizardPage):
         form = QFormLayout(req)
         form.setLabelAlignment(Qt.AlignRight)
         form.setSpacing(8)
-        self.cbt_length = dspin(suffix="m")
-        self.cbt_breadth = dspin(suffix="m")
-        self.cbt_smcr_power = dspin(suffix="kW", mx=999999)
-        self.cbt_smcr_speed = dspin(dec=3, suffix="m/s")
-        self.cbt_fuel_rate = dspin(suffix="g/kWh", mx=9999)
+
+        # Prefilled to pass pydantic validation, but the CBT model ignores them.
+        self.cbt_length = dspin(val=SHIP_DEFAULTS["BOAT_LENGTH"], suffix="m")
+        self.cbt_breadth = dspin(val=SHIP_DEFAULTS["BOAT_BREADTH"], suffix="m")
+        self.cbt_smcr_power = dspin(val=SHIP_DEFAULTS["BOAT_SMCR_POWER"], suffix="kW", mx=999999)
+        self.cbt_smcr_speed = dspin(val=SHIP_DEFAULTS["BOAT_SMCR_SPEED"], dec=3, suffix="m/s")
+        self.cbt_fuel_rate = dspin(val=SHIP_DEFAULTS["BOAT_FUEL_RATE"], suffix="g/kWh", mx=9999)
+        self.cbt_hbr = dspin(val=SHIP_DEFAULTS["BOAT_HBR"], suffix="m")
+
+        # Courses file — genuinely read by the CBT model, so this is the only required field on this panel.
         self.cbt_courses = QLineEdit()
         self.cbt_courses.setPlaceholderText("/path/to/courses.nc")
-        self.cbt_courses.textChanged.connect(self.completeChanged)
         browse = QPushButton("Browse…")
         browse.clicked.connect(lambda: self._browse_file(self.cbt_courses, "NetCDF (*.nc)"))
         courses_row = QHBoxLayout()
         courses_row.addWidget(self.cbt_courses)
         courses_row.addWidget(browse)
-        for x in (
-            self.cbt_length,
-            self.cbt_breadth,
-            self.cbt_smcr_power,
-            self.cbt_smcr_speed,
-            self.cbt_fuel_rate,
-        ):
-            x.valueChanged.connect(self.completeChanged)
-        form.addRow(req_label("Length overall"), self.cbt_length)
-        form.addRow(req_label("Breadth"), self.cbt_breadth)
-        form.addRow(req_label("SMCR power"), self.cbt_smcr_power)
-        form.addRow(req_label("Avg. speed at SMCR"), self.cbt_smcr_speed)
-        form.addRow(req_label("Fuel rate"), self.cbt_fuel_rate)
         form.addRow(req_label("Courses file"), courses_row)
         v.addWidget(req)
 
         btn, box = self._maripower_advanced("cbt")
+        adv_form = box.layout()
+        adv_form.addRow(QLabel("<b>Not required — schema-only fields</b>"))
+        adv_form.addRow(opt_label("Length overall", "BOAT_LENGTH"), self.cbt_length)
+        adv_form.addRow(opt_label("Breadth", "BOAT_BREADTH"), self.cbt_breadth)
+        adv_form.addRow(opt_label("SMCR power", "BOAT_SMCR_POWER"), self.cbt_smcr_power)
+        adv_form.addRow(opt_label("Avg. speed at SMCR", "BOAT_SMCR_SPEED"), self.cbt_smcr_speed)
+        adv_form.addRow(opt_label("Fuel rate", "BOAT_FUEL_RATE"), self.cbt_fuel_rate)
+        adv_form.addRow(opt_label("Max height (HBR)", "BOAT_HBR"), self.cbt_hbr)
         v.addWidget(btn)
         v.addWidget(box)
         v.addStretch()
@@ -350,14 +340,49 @@ class BoatPage(QWizardPage):
         w = QWidget()
         v = QVBoxLayout(w)
         v.setContentsMargins(0, 0, 0, 0)
+        v.setSpacing(10)
+
         note = QLabel(
-            "Speedy isobased is for testing only. It uses the constant "
-            "<b>Speed</b> above and needs no further parameters."
+            "Speedy isobased is for testing only. It returns a constant fuel rate at the "
+            "<b>Speed</b> above."
         )
         note.setTextFormat(Qt.RichText)
         note.setWordWrap(True)
         note.setStyleSheet(f"color: {COLOR_WARNING}; font-size: 12px; padding: 12px;")
         v.addWidget(note)
+
+        req = QGroupBox("Required — speedy isobased")
+        form = QFormLayout(req)
+        form.setLabelAlignment(Qt.AlignRight)
+        form.setSpacing(8)
+        self.speedy_fuel_rate = dspin(suffix="g/kWh", mx=9999)
+        form.addRow(req_label("Fuel rate"), self.speedy_fuel_rate)
+        v.addWidget(req)
+
+        # Prefilled to pass pydantic validation, but the speedy_isobased model ignores them.
+        btn, box = collapsible("Not required — schema-only fields")
+        adv = QFormLayout(box)
+        adv.setLabelAlignment(Qt.AlignRight)
+        adv.setSpacing(8)
+        hint = QLabel(
+            "The routing tool validates every config against its ship schema, which makes "
+            "these mandatory. The constant-fuel model ignores them."
+        )
+        hint.setWordWrap(True)
+        hint.setStyleSheet(f"color: {COLOR_MUTED}; font-size: 11px;")
+        adv.addRow(hint)
+        self.speedy_length = dspin(val=SHIP_DEFAULTS["BOAT_LENGTH"], suffix="m")
+        self.speedy_breadth = dspin(val=SHIP_DEFAULTS["BOAT_BREADTH"], suffix="m")
+        self.speedy_hbr = dspin(val=SHIP_DEFAULTS["BOAT_HBR"], suffix="m")
+        self.speedy_smcr_power = dspin(val=SHIP_DEFAULTS["BOAT_SMCR_POWER"], suffix="kW", mx=999999)
+        self.speedy_smcr_speed = dspin(val=SHIP_DEFAULTS["BOAT_SMCR_SPEED"], dec=3, suffix="m/s")
+        adv.addRow(opt_label("Length overall", "BOAT_LENGTH"), self.speedy_length)
+        adv.addRow(opt_label("Breadth", "BOAT_BREADTH"), self.speedy_breadth)
+        adv.addRow(opt_label("Max height (HBR)", "BOAT_HBR"), self.speedy_hbr)
+        adv.addRow(opt_label("SMCR power", "BOAT_SMCR_POWER"), self.speedy_smcr_power)
+        adv.addRow(opt_label("Avg. speed at SMCR", "BOAT_SMCR_SPEED"), self.speedy_smcr_speed)
+        v.addWidget(btn)
+        v.addWidget(box)
         v.addStretch()
         return w
 
@@ -365,11 +390,12 @@ class BoatPage(QWizardPage):
     def _on_boat_type_changed(self, idx):
         bt = self.boat_type.currentData()
         self.stack.setCurrentIndex(_BOAT_STACK.get(bt, 0))
-        self.completeChanged.emit()
+        # The panel changed, so marks on the old panel's fields no longer apply.
+        self.clear_errors()
 
     def _populate_boat_types(self):
         """Restrict the boat-type combo to the types valid for the chosen algorithm."""
-        algo = self.config.get("ALGORITHM_TYPE", "isofuel")
+        algo = self.config.get("ALGORITHM_TYPE", DEFAULT_ALGORITHM)
         allowed = _compatible_boat_types(algo)
         current = self.boat_type.currentData()
         self.boat_type.blockSignals(True)
@@ -395,89 +421,55 @@ class BoatPage(QWizardPage):
         if path:
             line_edit.setText(path)
 
-    def _missing_fields(self):
-        """List the required fields not yet set, for the active boat type."""
+    def _required_inputs(self):
+        """(label, widget) for every input the active boat type must have."""
         bt = self.boat_type.currentData()
-        missing = []
-        if not self._speed_hidden() and self.speed_ms.value() <= 0:
-            missing.append("speed")
-        if bt == "speedy_isobased":
-            return missing
+        required = []
+        if not self._speed_hidden():
+            required.append(("speed", self.speed_ms))
         if bt == "direct_power_method":
-            if self.dp_length.value() <= 0:
-                missing.append("length")
-            if self.dp_breadth.value() <= 0:
-                missing.append("breadth")
-            if self.dp_smcr_power.value() <= 0:
-                missing.append("SMCR power")
-            if self.dp_smcr_speed.value() <= 0:
-                missing.append("speed at SMCR")
-            if self.dp_fuel_rate.value() <= 0:
-                missing.append("fuel rate")
-            if self.dp_hbr.value() <= 0:
-                missing.append("max height (HBR)")
+            required += [
+                ("length", self.dp_length),
+                ("breadth", self.dp_breadth),
+                ("SMCR power", self.dp_smcr_power),
+                ("speed at SMCR", self.dp_smcr_speed),
+                ("fuel rate", self.dp_fuel_rate),
+                ("max height (HBR)", self.dp_hbr),
+            ]
         elif bt == "CBT":
-            if self.cbt_length.value() <= 0:
-                missing.append("length")
-            if self.cbt_breadth.value() <= 0:
-                missing.append("breadth")
-            if self.cbt_smcr_power.value() <= 0:
-                missing.append("SMCR power")
-            if self.cbt_smcr_speed.value() <= 0:
-                missing.append("speed at SMCR")
-            if self.cbt_fuel_rate.value() <= 0:
-                missing.append("fuel rate")
-            if not self.cbt_courses.text().strip():
-                missing.append("courses file")
-        return missing
+            required += [("courses file", self.cbt_courses)]
+        elif bt == "speedy_isobased":
+            required += [("fuel rate", self.speedy_fuel_rate)]
+        return required
 
-    def _update_status(self):
-        if self.status is None:
-            return  # still being constructed
-        missing = self._missing_fields()
-        if not missing:
-            self.status.set_ok("Boat type, dimensions & power parameters set")
-        else:
-            self.status.set_pending("Set " + join_terms(missing) + " to continue")
-
-    def isComplete(self):
-        bt = self.boat_type.currentData()
-        if not self._speed_hidden() and self.speed_ms.value() <= 0:
-            return False
-        if bt == "speedy_isobased":
-            return True
-        if bt == "direct_power_method":
-            return (
-                self.dp_length.value() > 0
-                and self.dp_breadth.value() > 0
-                and self.dp_smcr_power.value() > 0
-                and self.dp_smcr_speed.value() > 0
-                and self.dp_fuel_rate.value() > 0
-                and self.dp_hbr.value() > 0
-            )
-        if bt == "CBT":
-            return (
-                self.cbt_length.value() > 0
-                and self.cbt_breadth.value() > 0
-                and self.cbt_smcr_power.value() > 0
-                and self.cbt_smcr_speed.value() > 0
-                and self.cbt_fuel_rate.value() > 0
-                and bool(self.cbt_courses.text().strip())
-            )
-        return True
+    # Validation — runs when Next is pressed, never while typing
+    def validation_errors(self):
+        errors = []
+        for label, widget in self._required_inputs():
+            if isinstance(widget, QLineEdit):
+                is_unset = not widget.text().strip()
+            else:
+                is_unset = widget.value() <= 0
+            if is_unset:
+                errors.append(FieldError(f"{label} is required", widget))
+        return errors
 
     # Config persistence
     def save_to_config(self):
         c = self.config
+        # Only for genetic is speed set on the Algorithm step, so we don't overwrite it here.
+        is_speed_owned_elsewhere = self._speed_hidden()
+        owned_speed = c.get("BOAT_SPEED") if is_speed_owned_elsewhere else None
+
         for key in BOAT_ALL_KEYS:
             c.pop(key, None)
 
         bt = self.boat_type.currentData()
         c["BOAT_TYPE"] = bt
-        # In genetic waypoints-only "via arrival" mode the schedule is fixed by
-        # arrival time, so BOAT_SPEED is left unset (the optimization page owns it).
-        if not self._speed_hidden():
+        if not is_speed_owned_elsewhere:
             c["BOAT_SPEED"] = self.speed_ms.value()
+        elif owned_speed is not None:
+            c["BOAT_SPEED"] = owned_speed
 
         if bt == "direct_power_method":
             c["BOAT_LENGTH"] = self.dp_length.value()
@@ -489,9 +481,17 @@ class BoatPage(QWizardPage):
             c["BOAT_SMCR_POWER"] = self.cbt_smcr_power.value()
             c["BOAT_SMCR_SPEED"] = self.cbt_smcr_speed.value()
             c["BOAT_FUEL_RATE"] = self.cbt_fuel_rate.value()
+            c["BOAT_HBR"] = self.cbt_hbr.value()
             c["COURSES_FILE"] = self.cbt_courses.text().strip()
             self._save_maripower(c, "cbt")
-        # speedy_isobased: only the common fields above.
+        elif bt == "speedy_isobased":
+            # ShipConfig requires all six for every config, whatever the boat model uses.
+            c["BOAT_FUEL_RATE"] = self.speedy_fuel_rate.value()
+            c["BOAT_LENGTH"] = self.speedy_length.value()
+            c["BOAT_BREADTH"] = self.speedy_breadth.value()
+            c["BOAT_HBR"] = self.speedy_hbr.value()
+            c["BOAT_SMCR_POWER"] = self.speedy_smcr_power.value()
+            c["BOAT_SMCR_SPEED"] = self.speedy_smcr_speed.value()
 
     def _save_direct(self, c):
         c["BOAT_SMCR_POWER"] = self.dp_smcr_power.value()
@@ -528,12 +528,10 @@ class BoatPage(QWizardPage):
 
     def initializePage(self):
         c = self.config
-        length_val = float(c.get("BOAT_LENGTH") or 0)
-        breadth_val = float(c.get("BOAT_BREADTH") or 0)
-        self.dp_length.setValue(length_val)
-        self.dp_breadth.setValue(breadth_val)
-        self.cbt_length.setValue(length_val)
-        self.cbt_breadth.setValue(breadth_val)
+        self.dp_length.setValue(float(c.get("BOAT_LENGTH") or 0))
+        self.dp_breadth.setValue(float(c.get("BOAT_BREADTH") or 0))
+        self.cbt_length.setValue(float(c.get("BOAT_LENGTH") or SHIP_DEFAULTS["BOAT_LENGTH"]))
+        self.cbt_breadth.setValue(float(c.get("BOAT_BREADTH") or SHIP_DEFAULTS["BOAT_BREADTH"]))
         raw_speed = float(c.get("BOAT_SPEED") or 0)
         self.speed_ms.setValue(raw_speed if raw_speed else 6.17)
 
@@ -557,9 +555,15 @@ class BoatPage(QWizardPage):
             getattr(self, attr).setValue(float(c.get(key) or 0))
 
         # CBT (maripower)
-        self.cbt_smcr_power.setValue(float(c.get("BOAT_SMCR_POWER") or 0))
-        self.cbt_smcr_speed.setValue(float(c.get("BOAT_SMCR_SPEED") or 0))
-        self.cbt_fuel_rate.setValue(float(c.get("BOAT_FUEL_RATE") or 0))
+        self.cbt_smcr_power.setValue(
+            float(c.get("BOAT_SMCR_POWER") or SHIP_DEFAULTS["BOAT_SMCR_POWER"])
+        )
+        self.cbt_smcr_speed.setValue(
+            float(c.get("BOAT_SMCR_SPEED") or SHIP_DEFAULTS["BOAT_SMCR_SPEED"])
+        )
+        self.cbt_fuel_rate.setValue(
+            float(c.get("BOAT_FUEL_RATE") or SHIP_DEFAULTS["BOAT_FUEL_RATE"])
+        )
         self.cbt_draught_aft.setValue(float(c.get("BOAT_DRAUGHT_AFT") or 10))
         self.cbt_draught_fore.setValue(float(c.get("BOAT_DRAUGHT_FORE") or 10))
         self.cbt_roughness_dist.setValue(int(c.get("BOAT_ROUGHNESS_DISTRIBUTION_LEVEL") or 1))
@@ -570,7 +574,18 @@ class BoatPage(QWizardPage):
         self.cbt_factor_calm.setValue(float(c.get("BOAT_FACTOR_CALM_WATER") or 1))
         self.cbt_factor_wave.setValue(float(c.get("BOAT_FACTOR_WAVE_FORCES") or 1))
         self.cbt_factor_wind.setValue(float(c.get("BOAT_FACTOR_WIND_FORCES") or 1))
+        self.cbt_hbr.setValue(float(c.get("BOAT_HBR") or SHIP_DEFAULTS["BOAT_HBR"]))
         self.cbt_courses.setText(c.get("COURSES_FILE", ""))
+
+        self.speedy_fuel_rate.setValue(float(c.get("BOAT_FUEL_RATE") or 0))
+        for attr, key in (
+            ("speedy_length", "BOAT_LENGTH"),
+            ("speedy_breadth", "BOAT_BREADTH"),
+            ("speedy_hbr", "BOAT_HBR"),
+            ("speedy_smcr_power", "BOAT_SMCR_POWER"),
+            ("speedy_smcr_speed", "BOAT_SMCR_SPEED"),
+        ):
+            getattr(self, attr).setValue(float(c.get(key) or SHIP_DEFAULTS[key]))
 
         # Boat type — restrict to the algorithm's compatible types, then restore.
         self._populate_boat_types()
@@ -581,4 +596,5 @@ class BoatPage(QWizardPage):
         self.boat_type.setCurrentIndex(idx)
         self.stack.setCurrentIndex(_BOAT_STACK.get(self.boat_type.currentData(), 0))
         self._apply_speed_visibility()
+        self.clear_errors()  # marks from an earlier failed Next don't survive a re-entry
         self._update_status()

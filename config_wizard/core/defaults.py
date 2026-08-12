@@ -4,6 +4,9 @@ All values are drawn from the official WRT documentation:
 https://52north.github.io/WeatherRoutingTool/source/configuration.html
 """
 
+# Default algorithm type used if advanced algorithm selection is not enabled.
+DEFAULT_ALGORITHM = "genetic"
+
 DEFAULTS = {
     # --- Route (Page 1) ---
     "DEFAULT_MAP": "",  # bbox lat_min,lon_min,lat_max,lon_max  (derived from route if blank)
@@ -17,6 +20,7 @@ DEFAULTS = {
     "BOAT_BREADTH": "",
     "BOAT_TYPE": "direct_power_method",
     "BOAT_SPEED": 7.0,  # m/s
+    "BOAT_SPEED_BOUNDARIES": [1.0, 10.0],  # [min, max] m/s
     "BOAT_FUEL_RATE": "",
     "BOAT_HBR": "",
     "BOAT_SMCR_POWER": "",
@@ -51,7 +55,7 @@ DEFAULTS = {
     "DELTA_TIME_FORECAST": 3,
     "TIME_FORECAST": 90,
     # --- Algorithm (Page 4) ---
-    "ALGORITHM_TYPE": "isofuel",
+    "ALGORITHM_TYPE": DEFAULT_ALGORITHM,
     # Isofuel / isochrone params
     "DELTA_FUEL": 3000,
     "ISOCHRONE_MAX_ROUTING_STEPS": 100,
@@ -68,7 +72,7 @@ DEFAULTS = {
     "GENETIC_NUMBER_OFFSPRINGS": 2,
     "GENETIC_POPULATION_SIZE": 20,
     "GENETIC_POPULATION_TYPE": "isofuel",
-    "GENETIC_REPAIR_TYPE": "waypoints_infill",
+    "GENETIC_REPAIR_TYPE": ["waypoints_infill", "constraint_violation"],
     "GENETIC_MUTATION_TYPE": "random",
     "GENETIC_CROSSOVER_TYPE": "random",
     "GENETIC_CROSSOVER_PATCHER": "isofuel",
@@ -92,16 +96,28 @@ DEFAULTS = {
     # --- Wizard-internal state (genetic)) ---
     "_GENETIC_INTENT": "speed_waypoints",  # waypoints | speed_waypoints | speed
     "_GENETIC_SCHEDULE": "via_speed",  # via_speed | via_arrival (waypoints-only mode)
+    # --- Wizard-internal state (algorithm page) ---
+    "_ALGO_ADVANCED": False,  # True once the user unlocks algorithm choice + advanced params
 }
 
 # Wizard-internal keys never written to the exported config.json.
-INTERNAL_KEYS = {"_GENETIC_INTENT", "_GENETIC_SCHEDULE"}
+INTERNAL_KEYS = {"_GENETIC_INTENT", "_GENETIC_SCHEDULE", "_ALGO_ADVANCED"}
 
 BOAT_TYPE_OPTIONS = [
     ("direct_power_method", "Direct power method"),
     ("CBT", "CBT (maripower)"),
     ("speedy_isobased", "Speedy isobased (testing only)"),
 ]
+
+# Ship config defaults, just to pass ShipConfig validation.
+SHIP_DEFAULTS = {
+    "BOAT_LENGTH": 1,
+    "BOAT_BREADTH": 1,
+    "BOAT_HBR": 0,
+    "BOAT_SMCR_POWER": 1,
+    "BOAT_SMCR_SPEED": 0,
+    "BOAT_FUEL_RATE": 0,
+}
 
 CONSTRAINT_OPTIONS = [
     ("land_crossing_global_land_mask", "Land crossing (global land mask)"),
@@ -119,6 +135,7 @@ PRUNE_GROUP_OPTIONS = [
     ("larger_direction", "Larger direction (default)"),
     ("courses", "Courses"),
     ("branch", "Branch"),
+    ("multiple_routes", "Multiple routes"),
 ]
 
 SYMMETRY_AXIS_OPTIONS = [
@@ -164,7 +181,7 @@ GENETIC_CROSSOVER_PATCHER_OPTIONS = [
 
 # Full algorithm list shown on Page 2.
 ALGORITHM_OPTIONS = [
-    ("isofuel", "Isofuel (default)"),
+    ("isofuel", "Isofuel"),
     ("genetic", "Genetic"),
     ("gcr_slider", "GCR Slider"),
     ("dijkstra", "Dijkstra"),

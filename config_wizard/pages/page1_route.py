@@ -1,5 +1,7 @@
 """Page 1 — Route: source, destination, waypoints, departure time, map bbox."""
 
+import os
+
 from qgis.core import (
     QgsCoordinateReferenceSystem,
     QgsCoordinateTransform,
@@ -7,8 +9,12 @@ from qgis.core import (
     QgsField,
     QgsFillSymbol,
     QgsGeometry,
+    QgsLineString,
+    QgsLineSymbol,
     QgsMarkerSymbol,
+    QgsMultiLineString,
     QgsPalLayerSettings,
+    QgsPoint,
     QgsPointXY,
     QgsProject,
     QgsRectangle,
@@ -23,6 +29,7 @@ from qgis.gui import QgsVertexMarker
 from qgis.PyQt.QtCore import QDateTime, Qt, QVariant
 from qgis.PyQt.QtGui import QColor, QFont
 from qgis.PyQt.QtWidgets import (
+    QCheckBox,
     QDateTimeEdit,
     QFileDialog,
     QFrame,
@@ -35,16 +42,25 @@ from qgis.PyQt.QtWidgets import (
     QScrollArea,
     QVBoxLayout,
     QWidget,
-    QWizardPage,
 )
 
+from ..core.gcr_geometry import (
+    great_circle_distance_km,
+    great_circle_points,
+    km_to_nm,
+    rhumb_line_distance_km,
+    rhumb_line_points,
+    split_at_antimeridian,
+)
 from ..ui.map_tools import MapPointPicker, RectangleMapTool
 from ..ui.ui_kit import (
+    COLOR_GREAT_CIRCLE,
     COLOR_GREEN,
     COLOR_MUTED,
     COLOR_ORANGE,
     COLOR_PRIMARY,
     COLOR_REQUIRED,
+    COLOR_RHUMB_LINE,
     LatLonField,
     StatusLine,
     addWaypoint,
@@ -54,12 +70,20 @@ from ..ui.ui_kit import (
     format_coords,
     in_range,
     make_badge,
+    on_focus_out,
     page_header,
-    set_field_error,
 )
+from ..ui.validation import FieldError, ValidatedPage
 
 
-class RoutePage(QWizardPage):
+def _rounded(coord_pairs):
+    """Coordinate pairs at the 4-decimal precision LatLonField.set_coords displays."""
+    return [(round(lat, 4), round(lon, 4)) for lat, lon in coord_pairs]
+
+
+class RoutePage(ValidatedPage):
+    STATUS_HINT = "Set the source, destination and departure time, then press Next"
+
     def __init__(self, config, parent=None):
         super().__init__(parent)
         self.config = config
@@ -70,23 +94,18 @@ class RoutePage(QWizardPage):
         self._active_label = None
         self._pick_map_tool = None
         self._pick_marker = None
-        # Memory point layer holding the labelled route markers
         self._marker_layer = None
+        self._route_line_layer = None
         # Bounding-box state
         self._bbox_layer = None
         self._bbox_map_tool = None
         self._bbox_prev_tool = None
         self._setting_bbox = False  # True while filling the bbox fields programmatically
         self._bbox_auto = False  # True while the box auto-tracks the route (±2°)
-        self.status = None
         self._build_ui()
 
         # Auto-derive the bounding box from the route by default.
-        self._bbox_auto = True
-
-        # Remove the map artifacts from the project when the wizard is closed.
-        if parent is not None:
-            parent.finished.connect(self._cleanup_map_artifacts)
+        self._set_bbox_auto(True)
 
     def _build_ui(self):
         page_layout = QVBoxLayout(self)
@@ -132,6 +151,13 @@ class RoutePage(QWizardPage):
         sd_grid.setColumnStretch(1, 1)
         root.addLayout(sd_grid)
 
+        # Great-circle / rhumb-line distance readout once the source and destination are set.
+        self.route_distance_label = QLabel()
+        self.route_distance_label.setStyleSheet(f"color: {COLOR_MUTED}; font-size: 11px;")
+        self.route_distance_label.setWordWrap(True)
+        self.route_distance_label.setVisible(False)
+        root.addWidget(self.route_distance_label)
+
         # Intermediate waypoints
         root.addWidget(field_label("Intermediate waypoints"))
         self.wp_container = QVBoxLayout()
@@ -142,10 +168,7 @@ class RoutePage(QWizardPage):
         self.add_row.clicked.connect(self._on_add_waypoint_clicked)
         self.wp_container.addWidget(self.add_row)
 
-        for wpt in self.config.get("INTERMEDIATE_WAYPOINTS", []):
-            if len(wpt) == 2:
-                field = self._add_waypoint()
-                field.set_coords(float(wpt[0]), float(wpt[1]))
+        self._sync_waypoints_from_config()
 
         # Departure time
         self.dep_dt, dep_widget = self._make_dt_field("D", COLOR_ORANGE, clearable=False)
@@ -164,7 +187,6 @@ class RoutePage(QWizardPage):
         root.addWidget(field_label("Output route path", required=True))
         self.route_path = QLineEdit(self.config.get("ROUTE_PATH", "/tmp"))
         self.route_path.setPlaceholderText("Directory where the route output will be written")
-        self.route_path.textChanged.connect(lambda: self.completeChanged.emit())
         browse_btn = QPushButton("Browse…")
         browse_btn.setAutoDefault(False)
         browse_btn.clicked.connect(self.browse_route_path)
@@ -189,6 +211,8 @@ class RoutePage(QWizardPage):
 
         self.adv_widget = self.build_advanced()
         self.adv_widget.setVisible(False)
+        # A failed validation in the advanced section shows a message under the bbox row.
+        self.adv_widget.set_expanded = self._set_advanced_expanded
         root.addWidget(self.adv_widget)
 
         root.addStretch(1)
@@ -219,8 +243,17 @@ class RoutePage(QWizardPage):
         self.bbox_draw_btn = QPushButton("✏  Draw on map")
         self.bbox_draw_btn.setAutoDefault(False)
         self.bbox_draw_btn.clicked.connect(self.start_bbox_draw)
+
+        self.bbox_auto_check = QCheckBox("Auto-fit to route (±2°)")
+        self.bbox_auto_check.setToolTip(
+            "Keep the routing area locked to the source, destination and waypoints. "
+            "Turn this on to snap a manually drawn or imported box back to the route."
+        )
+        self.bbox_auto_check.toggled.connect(self._on_bbox_auto_toggled)
+
         btn_row = QHBoxLayout()
         btn_row.addWidget(self.bbox_draw_btn)
+        btn_row.addWidget(self.bbox_auto_check)
         btn_row.addStretch(1)
         lay.addLayout(btn_row)
 
@@ -230,7 +263,9 @@ class RoutePage(QWizardPage):
         self.bbox_lon_max = coord_input("lon max", -180.0, 180.0)
         bbox_row = QHBoxLayout()
         for w in (self.bbox_lat_min, self.bbox_lon_min, self.bbox_lat_max, self.bbox_lon_max):
-            w.textChanged.connect(self.on_bbox_changed)
+            on_focus_out(w, self.on_bbox_changed)
+            # Update the message once the the fields are edited.
+            w.textChanged.connect(lambda _t: self.bbox_msg.setVisible(False))
             bbox_row.addWidget(w)
         lay.addLayout(bbox_row)
 
@@ -252,7 +287,6 @@ class RoutePage(QWizardPage):
         dt.setDisplayFormat("dd/MM/yyyy - hh:mm AP")
         dt.setCalendarPopup(True)
         dt.setTimeSpec(Qt.LocalTime)
-        dt.dateTimeChanged.connect(self._update_status)
 
         row.addWidget(badge)
         row.addWidget(dt, 1)
@@ -268,9 +302,11 @@ class RoutePage(QWizardPage):
         return dt, container
 
     def toggle_advanced(self):
-        visible = not self.adv_widget.isVisible()
-        self.adv_widget.setVisible(visible)
-        self.adv_toggle.setText(("▼" if visible else "▶") + "  Advanced options")
+        self._set_advanced_expanded(not self.adv_widget.isVisible())
+
+    def _set_advanced_expanded(self, expanded):
+        self.adv_widget.setVisible(expanded)
+        self.adv_toggle.setText(("▼" if expanded else "▶") + "  Advanced options")
 
     # Point / waypoint wiring
     def _wire_point(self, field, label):
@@ -279,12 +315,12 @@ class RoutePage(QWizardPage):
         field.changed.connect(self._on_field_changed)
 
     def _on_field_changed(self):
-        self._update_status()
+        """Refresh the map preview after a point field is left (never mid-typing)."""
         self._refresh_marker_layer()
+        self._refresh_route_lines()
         # A route-derived (auto) bounding box tracks source/destination changes.
         if self._bbox_auto:
             self._derive_bbox_from_route(track=True)
-        self.completeChanged.emit()
 
     def _on_add_waypoint_clicked(self):
         self._add_waypoint()
@@ -308,13 +344,37 @@ class RoutePage(QWizardPage):
             self._refresh_marker_layer()
             if self._bbox_auto:
                 self._derive_bbox_from_route(track=True)
-            self._update_status()
 
         field.action_clicked.connect(remove)
 
         if lat is not None and lon is not None:
             field.set_coords(float(lat), float(lon))
         return field
+
+    def _config_waypoints(self):
+        """INTERMEDIATE_WAYPOINTS as a list of (lat, lon) float pairs."""
+        waypoints = []
+        for wpt in self.config.get("INTERMEDIATE_WAYPOINTS") or []:
+            if len(wpt) != 2:
+                continue
+            try:
+                waypoints.append((float(wpt[0]), float(wpt[1])))
+            except (TypeError, ValueError):
+                continue
+        return waypoints
+
+    def _sync_waypoints_from_config(self):
+        """Rebuild the waypoint rows from the config."""
+        wanted = self._config_waypoints()
+        shown = [entry["field"].get_coords() for entry in self.waypoint_rows]
+        if _rounded(coords for coords in shown if coords is not None) == _rounded(wanted):
+            return
+
+        for entry in list(self.waypoint_rows):
+            entry["field"].setParent(None)
+        self.waypoint_rows = []
+        for lat, lon in wanted:
+            self._add_waypoint(lat, lon)
 
     def _renumber_waypoints(self):
         for i, entry in enumerate(self.waypoint_rows):
@@ -326,9 +386,13 @@ class RoutePage(QWizardPage):
         fields = (self.bbox_lat_min, self.bbox_lon_min, self.bbox_lat_max, self.bbox_lon_max)
         texts = [f.text().strip() for f in fields]
         if not any(texts):
-            return ("empty", "")
+            return (
+                "empty",
+                "A routing bounding box is required — turn on auto-fit, draw one on "
+                "the map, or enter it manually.",
+            )
         if not all(texts):
-            return ("partial", "Enter all four bounding-box values, or leave them all blank.")
+            return ("partial", "Enter all four bounding-box values.")
         if not (in_range(self.bbox_lat_min) and in_range(self.bbox_lat_max)):
             return ("invalid", "Latitudes must be numbers between −90 and 90.")
         if not (in_range(self.bbox_lon_min) and in_range(self.bbox_lon_max)):
@@ -343,18 +407,24 @@ class RoutePage(QWizardPage):
         return ("ok", "")
 
     def on_bbox_changed(self):
-        state, msg = self._bbox_state()
+        """React to a bbox field being left: retrack, then repaint the preview."""
         # A hand-edit detaches the box from the route so it stops auto-tracking.
         if not self._setting_bbox:
-            self._bbox_auto = False
-        # Red-border any individual field that is non-empty and out of range.
-        for f in (self.bbox_lat_min, self.bbox_lon_min, self.bbox_lat_max, self.bbox_lon_max):
-            set_field_error(f, bool(f.text().strip()) and not in_range(f))
-        self.bbox_msg.setText(msg)
-        self.bbox_msg.setVisible(bool(msg))
+            self._set_bbox_auto(False)
         self._refresh_bbox_layer()
-        self._update_status()
-        self.completeChanged.emit()
+
+    def _set_bbox_auto(self, auto):
+        """Update the auto-tracking flag and keep the checkbox in sync without recursing."""
+        self._bbox_auto = auto
+        self.bbox_auto_check.blockSignals(True)
+        self.bbox_auto_check.setChecked(auto)
+        self.bbox_auto_check.blockSignals(False)
+
+    def _on_bbox_auto_toggled(self, checked):
+        """User flipped the checkbox directly — e.g. to reclaim a box loaded from JSON."""
+        self._set_bbox_auto(checked)
+        if checked:
+            self._derive_bbox_from_route(track=True)
 
     def browse_route_path(self):
         path = QFileDialog.getExistingDirectory(self, "Output route path", self.route_path.text())
@@ -414,7 +484,7 @@ class RoutePage(QWizardPage):
         if bounds is None:
             return False
         self.set_bbox_fields(*bounds)
-        self._bbox_auto = track
+        self._set_bbox_auto(track)
         return True
 
     # Interactive draw on the map
@@ -477,7 +547,7 @@ class RoutePage(QWizardPage):
             return  # stay in the draw tool for further adjustment
 
         self.set_bbox_fields(lat_min, lon_min, lat_max, lon_max)
-        self._bbox_auto = False  # an explicitly drawn box does not track the route
+        self._set_bbox_auto(False)  # an explicitly drawn box does not track the route
         self.finish_bbox_draw()
 
     def finish_bbox_draw(self):
@@ -557,34 +627,68 @@ class RoutePage(QWizardPage):
             self._bbox_prev_tool = None
         self._remove_bbox_layer()
         self._remove_marker_layer()
+        self._remove_route_line_layer()
 
-    # Status / completion
-    def _update_status(self):
-        if self.status is None:
-            return  # still being constructed
-        have_src = self.src_field.get_coords() is not None
-        have_dst = self.dst_field.get_coords() is not None
-        missing = []
-        if not have_src:
-            missing.append("source")
-        if not have_dst:
-            missing.append("destination")
-        if missing:
-            self.status.set_pending("Set " + " and ".join(missing) + " to continue")
-            return
+    # Validation — runs when Next is pressed
+    def validation_errors(self):
+        errors = []
+        errors += self._point_errors(self.src_field, "Source")
+        errors += self._point_errors(self.dst_field, "Destination")
+        for i, entry in enumerate(self.waypoint_rows, start=1):
+            errors += self._point_errors(entry["field"], f"Waypoint {i}", required=False)
+
+        errors += self._route_path_errors()
+
         bbox_state, bbox_msg = self._bbox_state()
-        if bbox_state not in ("empty", "ok"):
-            self.status.set_pending("Bounding box — " + bbox_msg)
-            return
-        self.status.set_ok("Source, destination & departure time set")
+        if bbox_state != "ok":
+            errors.append(FieldError(bbox_msg.rstrip("."), self._first_bad_bbox_field()))
+        return errors
 
-    def isComplete(self):
-        return bool(
-            self.src_field.get_coords() is not None
-            and self.dst_field.get_coords() is not None
-            and self.route_path.text().strip()
-            and self._bbox_state()[0] in ("empty", "ok")
-        )
+    def _route_path_errors(self):
+        """ROUTE_PATH must be an existing directory (hard check)."""
+        path = self.route_path.text().strip()
+        if not path:
+            return [FieldError("an output route path is required", self.route_path)]
+        if os.path.isdir(path):
+            return []
+        if os.path.exists(path):
+            return [FieldError("the output route path is a file, not a folder", self.route_path)]
+        return [FieldError("the output route path does not exist", self.route_path)]
+
+    @staticmethod
+    def _point_errors(field, label, required=True):
+        """Check one lat/lon pair: both filled, both in range."""
+        has_lat = bool(field.lat.text().strip())
+        has_lon = bool(field.lon.text().strip())
+        if not (has_lat or has_lon):
+            return [] if not required else [FieldError(f"{label} is required", field.lat)]
+        if not has_lat:
+            return [FieldError(f"{label} is missing its latitude", field.lat)]
+        if not has_lon:
+            return [FieldError(f"{label} is missing its longitude", field.lon)]
+        if not in_range(field.lat):
+            return [FieldError(f"{label} latitude must be between −90 and 90", field.lat)]
+        if not in_range(field.lon):
+            return [FieldError(f"{label} longitude must be between −180 and 180", field.lon)]
+        return []
+
+    def _first_bad_bbox_field(self):
+        """The bbox input to jump to: the first one that is empty or out of range."""
+        for field in self._bbox_fields():
+            if not field.text().strip() or not in_range(field):
+                return field
+        return self.bbox_lat_min  # all four parse; the problem is min >= max
+
+    def _bbox_fields(self):
+        return (self.bbox_lat_min, self.bbox_lon_min, self.bbox_lat_max, self.bbox_lon_max)
+
+    def validatePage(self):
+        valid = super().validatePage()
+        # The advanced section carries its own message under the bbox row.
+        message = "" if valid else self._bbox_state()[1]
+        self.bbox_msg.setText(message)
+        self.bbox_msg.setVisible(bool(message))
+        return valid
 
     # Config persistence
     def save_to_config(self):
@@ -605,9 +709,7 @@ class RoutePage(QWizardPage):
                 waypoints.append([coords[0], coords[1]])
         self.config["INTERMEDIATE_WAYPOINTS"] = waypoints
 
-        # Build bbox — prefer the field values when they form a valid box,
-        # otherwise fall back to the route-derived ±2° box (never persist a
-        # partial/invalid bbox).
+        # The bounding box is either the manually entered one, or auto-derived from the route.
         if self._bbox_state()[0] == "ok":
             self.config["DEFAULT_MAP"] = (
                 f"{self.bbox_lat_min.text()},{self.bbox_lon_min.text()},"
@@ -621,6 +723,8 @@ class RoutePage(QWizardPage):
                 self.config["DEFAULT_MAP"] = ""
 
     def initializePage(self):
+        self._sync_waypoints_from_config()
+
         route = self.config.get("DEFAULT_ROUTE", "")
         if route:
             parts = [p.strip() for p in route.split(",")]
@@ -630,6 +734,9 @@ class RoutePage(QWizardPage):
                     self.dst_field.set_coords(float(parts[2]), float(parts[3]))
                 except ValueError:
                     pass
+        else:
+            self.src_field.clear()
+            self.dst_field.clear()
         dep_str = self.config.get("DEPARTURE_TIME", "")
         if dep_str:
             utc_dt = QDateTime.fromString(dep_str, "yyyy-MM-ddTHH:mmZ")
@@ -650,10 +757,31 @@ class RoutePage(QWizardPage):
                         float(parts[2]),
                         float(parts[3]),
                     )
-                    self._bbox_auto = False
+                    self._set_bbox_auto(False)
                 except ValueError:
                     pass
+        else:
+            self._clear_bbox_fields()
+        self.clear_errors()
+        self.bbox_msg.setVisible(False)
         self._update_status()
+
+    def _clear_bbox_fields(self):
+        """Empty the bbox inputs and hand the box back to route auto-tracking."""
+        self._setting_bbox = True
+        try:
+            for field in (
+                self.bbox_lat_min,
+                self.bbox_lon_min,
+                self.bbox_lat_max,
+                self.bbox_lon_max,
+            ):
+                field.clear()
+        finally:
+            self._setting_bbox = False
+        self.on_bbox_changed()
+        self._set_bbox_auto(True)
+        self._derive_bbox_from_route(track=True)
 
     # Map picking
     def _start_map_pick(self, field, label):
@@ -793,6 +921,110 @@ class RoutePage(QWizardPage):
         if self._marker_layer is not None:
             QgsProject.instance().removeMapLayer(self._marker_layer.id())
             self._marker_layer = None
+
+    # Great-circle / rhumb-line preview between source and destination
+    def _refresh_route_lines(self):
+        src = self.src_field.get_coords()
+        dst = self.dst_field.get_coords()
+        if not (src and dst):
+            self._remove_route_line_layer()
+            return
+
+        layer = self._ensure_route_line_layer()
+        provider = layer.dataProvider()
+        provider.truncate()
+
+        gc_km = great_circle_distance_km(*src, *dst)
+        rl_km = rhumb_line_distance_km(*src, *dst)
+        gc_nm, rl_nm = km_to_nm(gc_km), km_to_nm(rl_km)
+
+        feats = []
+        for role, path_points, map_label in (
+            (
+                "great_circle",
+                great_circle_points(*src, *dst),
+                f"Great circle · {gc_km:,.0f} km ({gc_nm:,.0f} nm)",
+            ),
+            (
+                "rhumb_line",
+                rhumb_line_points(*src, *dst),
+                f"Rhumb line · {rl_km:,.0f} km ({rl_nm:,.0f} nm)",
+            ),
+        ):
+            multi_line = QgsMultiLineString()
+            for segment in split_at_antimeridian(path_points):
+                multi_line.addGeometry(QgsLineString([QgsPoint(lon, lat) for lat, lon in segment]))
+            feat = QgsFeature(layer.fields())
+            feat.setAttributes([role, map_label])
+            feat.setGeometry(QgsGeometry(multi_line))
+            feats.append(feat)
+        provider.addFeatures(feats)
+        layer.triggerRepaint()
+
+        self.route_distance_label.setText(
+            f"Great circle {gc_km:,.1f} km ({gc_nm:,.1f} nm)  ·  "
+            f"Rhumb line {rl_km:,.1f} km ({rl_nm:,.1f} nm)  ·  "
+            f"{rl_km - gc_km:+,.1f} km ({rl_nm - gc_nm:+,.1f} nm)"
+        )
+        self.route_distance_label.setVisible(True)
+
+    def _ensure_route_line_layer(self):
+        if self._route_line_layer is not None:
+            return self._route_line_layer
+        layer = QgsVectorLayer("MultiLineString?crs=EPSG:4326", "WRT Route Lines", "memory")
+        provider = layer.dataProvider()
+        provider.addAttributes(
+            [
+                QgsField("role", QVariant.String),
+                QgsField("label", QVariant.String),
+            ]
+        )
+        layer.updateFields()
+        self._style_route_line_layer(layer)
+        QgsProject.instance().addMapLayer(layer)
+        self._route_line_layer = layer
+        return layer
+
+    def _style_route_line_layer(self, layer):
+        def rule(name, expr, color, line_style):
+            symbol = QgsLineSymbol.createSimple(
+                {"color": color, "width": "0.6", "line_style": line_style}
+            )
+            r = QgsRuleBasedRenderer.Rule(symbol)
+            r.setFilterExpression(expr)
+            r.setLabel(name)
+            return r
+
+        root = QgsRuleBasedRenderer.Rule(None)
+        root.appendChild(
+            rule("Great circle", "\"role\" = 'great_circle'", COLOR_GREAT_CIRCLE, "solid")
+        )
+        root.appendChild(rule("Rhumb line", "\"role\" = 'rhumb_line'", COLOR_RHUMB_LINE, "dash"))
+        layer.setRenderer(QgsRuleBasedRenderer(root))
+
+        fmt = QgsTextFormat()
+        font = QFont("Sans Serif", 9)
+        font.setBold(True)
+        fmt.setFont(font)
+        buf = QgsTextBufferSettings()
+        buf.setEnabled(True)
+        buf.setSize(1.0)
+        buf.setColor(QColor("white"))
+        fmt.setBuffer(buf)
+
+        pal = QgsPalLayerSettings()
+        pal.fieldName = "label"
+        pal.enabled = True
+        pal.setFormat(fmt)
+        pal.placement = QgsPalLayerSettings.Line
+        layer.setLabeling(QgsVectorLayerSimpleLabeling(pal))
+        layer.setLabelsEnabled(True)
+
+    def _remove_route_line_layer(self):
+        if self._route_line_layer is not None:
+            QgsProject.instance().removeMapLayer(self._route_line_layer.id())
+            self._route_line_layer = None
+        self.route_distance_label.setVisible(False)
 
     def _restore_window(self):
         window = self.window()

@@ -3,9 +3,12 @@
 import os
 import re
 
-from qgis.PyQt.QtCore import QLocale, Qt, pyqtSignal
+from qgis.PyQt.QtCore import QEvent, QLocale, QObject, Qt, pyqtSignal
 from qgis.PyQt.QtGui import QDoubleValidator
 from qgis.PyQt.QtWidgets import (
+    QAbstractButton,
+    QAbstractSpinBox,
+    QComboBox,
     QDoubleSpinBox,
     QFrame,
     QGroupBox,
@@ -15,6 +18,7 @@ from qgis.PyQt.QtWidgets import (
     QPushButton,
     QSizePolicy,
     QSpinBox,
+    QTextEdit,
     QToolButton,
     QVBoxLayout,
     QWidget,
@@ -42,6 +46,8 @@ COLOR_GRAY_BADGE = "#e5e7eb"
 COLOR_WARNING = "#d97706"
 COLOR_FILE_OK = "#3B6D11"
 COLOR_FILE_ERROR = "#D85A30"
+COLOR_GREAT_CIRCLE = "#7c3aed"
+COLOR_RHUMB_LINE = "#0891b2"
 
 
 # Global stylesheet
@@ -161,6 +167,7 @@ QLabel#PageSubtitle {{ font-size: 13px; color: {COLOR_MUTED}; }}
 QLabel#SectionLabel {{ font-size: 12px; font-weight: 600; color: {COLOR_TEXT}; }}
 QLabel#StatusOk {{ font-size: 13px; font-weight: 600; color: {COLOR_SUCCESS}; }}
 QLabel#StatusPending {{ font-size: 13px; color: {COLOR_MUTED}; }}
+QLabel#StatusError {{ font-size: 13px; font-weight: 600; color: {COLOR_REQUIRED}; }}
 QToolButton#ClearBtn {{
     border: 1px solid {COLOR_INPUT_BORDER};
     border-radius: 8px;
@@ -179,6 +186,55 @@ QToolButton#PickBtn {{
 }}
 QToolButton#PickBtn:hover {{ background: {COLOR_PRIMARY_SOFT}; border-color: {COLOR_PRIMARY}; }}
 """
+
+# Calendar popup QSS — applied to each QDateTimeEdit
+CALENDAR_QSS = """
+QCalendarWidget QWidget { color: palette(text); background: palette(window); border-bottom: 1px solid grey; border-left: 1px solid grey; border-right: 1px solid grey; }
+QCalendarWidget QAbstractItemView {
+    color: palette(text);
+    background: palette(base);
+    selection-background-color: palette(highlight);
+    selection-color: palette(highlighted-text);
+}
+QCalendarWidget QAbstractItemView::item:hover { background: palette(alternate-base); }
+QCalendarWidget QToolButton { color: palette(button-text); background: transparent; }
+/* Taking over the background above also takes over the hover and pressed
+   states: without these the month/year buttons flood solid black on hover. */
+QCalendarWidget QToolButton:hover, QCalendarWidget QToolButton:pressed {
+    background: palette(highlight);
+    color: palette(highlighted-text);
+    border-radius: 4px;
+}
+QCalendarWidget QSpinBox { color: palette(text); background: palette(base); }
+"""
+
+
+def style_calendar(dt_edit):
+    """Hand a QDateTimeEdit's calendar popup back to the system theme."""
+    cal = dt_edit.calendarWidget()
+    if cal is not None:  # None when the picker has no calendar popup
+        cal.setStyleSheet(CALENDAR_QSS)
+
+
+class _FocusOutWatcher(QObject):
+    """Calls a slot when its widget loses focus."""
+
+    def __init__(self, widget, slot):
+        super().__init__(widget)  # parented, so it lives exactly as long as the widget
+        self._slot = slot
+
+    def eventFilter(self, _obj, event):
+        if event.type() == QEvent.FocusOut:
+            self._slot()
+        return False  # never swallow the event
+
+
+def on_focus_out(widget, slot):
+    """Call `slot` once the user leaves `widget` (focus-out or Enter)."""
+
+    widget.installEventFilter(_FocusOutWatcher(widget, slot))
+    if hasattr(widget, "returnPressed"):
+        widget.returnPressed.connect(slot)
 
 
 # Components
@@ -387,12 +443,7 @@ class CheckCard(QFrame):
 
 
 class StatusLine(QWidget):
-    """A separator + status label pinned at the bottom of a wizard page.
-
-    Use :meth:`set_ok` for a green '✓ …' confirmation and :meth:`set_pending`
-    for a muted '• …' hint. Styling comes from the StatusOk / StatusPending
-    object names in the global stylesheet.
-    """
+    """A separator + status label pinned at the bottom of a wizard page."""
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -409,6 +460,9 @@ class StatusLine(QWidget):
 
     def set_pending(self, text):
         self._apply("StatusPending", f"•  {text}")
+
+    def set_error(self, text):
+        self._apply("StatusError", f"✕  {text}")
 
     def _apply(self, object_name, text):
         self.label.setObjectName(object_name)
@@ -536,8 +590,14 @@ def coord_input(placeholder, low, high):
 
 
 def set_field_error(widget, error):
-    """Toggle a red error border on an input widget (e.g. out-of-range value)."""
-    widget.setStyleSheet(f"QLineEdit {{ border: 1px solid {COLOR_REQUIRED}; }}" if error else "")
+    """Toggle a red error border on an input widget (line edit or spin box)."""
+    selector = widget.metaObject().className()
+    widget.setStyleSheet(
+        f"{selector} {{ border: 1px solid {COLOR_REQUIRED}; }}"
+        f"{selector}:focus {{ border: 1px solid {COLOR_REQUIRED}; background: #fffafa; }}"
+        if error
+        else ""
+    )
 
 
 def in_range(edit):
@@ -553,6 +613,24 @@ def in_range(edit):
     except ValueError:
         return False
     return edit._lo <= v <= edit._hi
+
+
+def input_state(root):
+    """Snapshot every input widget's value under `root`.
+
+    Comparing two snapshots tells us whether the user edited a page or not.
+    """
+    state = []
+    for w in root.findChildren(QWidget):
+        if isinstance(w, (QLineEdit, QAbstractSpinBox)):
+            state.append(w.text())
+        elif isinstance(w, QComboBox):
+            state.append(w.currentIndex())
+        elif isinstance(w, QAbstractButton):
+            state.append(w.isChecked())
+        elif isinstance(w, QTextEdit):
+            state.append(w.toPlainText())
+    return state
 
 
 # Shared form-field factories (used across the boat / weather / algorithm pages)
@@ -599,7 +677,11 @@ def ispin(val=0, mn=0, mx=999999):
 
 
 def collapsible(title):
-    """A flat toggle button that shows/hides a returned (initially hidden) QGroupBox."""
+    """A flat toggle button that shows/hides a returned (initially hidden) QGroupBox.
+
+    The button carries a ``set_expanded(expanded)`` callable so callers can open or
+    close the section from code without the arrow going out of sync.
+    """
     btn = QPushButton("▶  " + title)
     btn.setFlat(True)
     btn.setAutoDefault(False)
@@ -613,12 +695,15 @@ def collapsible(title):
     box = QGroupBox()
     box.setVisible(False)
 
-    def toggle():
-        vis = not box.isVisible()
-        box.setVisible(vis)
-        btn.setText(("▼" if vis else "▶") + "  " + title)
+    def set_expanded(expanded):
+        box.setVisible(expanded)
+        btn.setText(("▼" if expanded else "▶") + "  " + title)
 
-    btn.clicked.connect(toggle)
+    btn.clicked.connect(lambda: set_expanded(not box.isVisible()))
+    # On both halves: the button for callers that drive the section, the box so a
+    # failed validation can open it around the field it needs to show.
+    btn.set_expanded = set_expanded
+    box.set_expanded = set_expanded
     return btn, box
 
 
@@ -642,11 +727,9 @@ class LatLonField(QWidget):
         self.lat.setToolTip("−90 to 90")
         self.lon = coord_input("e.g. 77.56", -180.0, 180.0)
         self.lon.setToolTip("−180 to 180")
-        self.lat.textChanged.connect(self._on_text_changed)
-        self.lon.textChanged.connect(self._on_text_changed)
+        for edit in (self.lat, self.lon):
+            on_focus_out(edit, self.changed.emit)
 
-        # Persistent captions so the user can tell latitude from longitude even
-        # once both inputs are filled (a placeholder would disappear).
         cap_css = (
             f"color: {COLOR_MUTED}; font-size: 10px; font-weight: 600; background: transparent;"
         )
@@ -676,11 +759,6 @@ class LatLonField(QWidget):
     def set_coords(self, lat, lon):
         self.lat.setText(f"{lat:.4f}")
         self.lon.setText(f"{lon:.4f}")
-
-    def _on_text_changed(self):
-        # Flag a red border on any non-empty, out-of-range value, then notify.
-        for edit in (self.lat, self.lon):
-            set_field_error(edit, bool(edit.text().strip()) and not in_range(edit))
         self.changed.emit()
 
     def get_coords(self):
@@ -694,3 +772,4 @@ class LatLonField(QWidget):
         self.lon.clear()
         set_field_error(self.lat, False)
         set_field_error(self.lon, False)
+        self.changed.emit()
