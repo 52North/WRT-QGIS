@@ -8,6 +8,8 @@ from qgis.core import (
 )
 from qgis.PyQt.QtGui import QColor
 
+from ..core import variable_catalog
+
 VECTOR_COLOR = QColor(31, 58, 95)
 VECTOR_LINE_WIDTH = 0.8
 
@@ -26,20 +28,6 @@ _RAMP_CLASSES = 5
 
 NO_GROUP = -1  # No active group, renders nothing on that axis.
 
-# Ramp per variable family, matched against the display name.
-# (ramp name, invert) — inverted RdYlBu reads cold-blue to hot-red.
-_RAMP_RULES = [
-    (re.compile(r"wave height|hm0", re.I), ("Blues", False)),
-    (re.compile(r"wave period|tp\b", re.I), ("Purples", False)),
-    (re.compile(r"direction", re.I), ("Spectral", False)),
-    (re.compile(r"temperature", re.I), ("RdYlBu", True)),
-    (re.compile(r"salinity", re.I), ("Greens", False)),
-    (re.compile(r"pressure", re.I), ("Spectral", True)),
-    (re.compile(r"velocity|current", re.I), ("Plasma", False)),
-    (re.compile(r"wind", re.I), ("Viridis", False)),
-]
-_DEFAULT_RAMP = ("Viridis", False)
-
 
 def is_wind_variable(name):
     """Wind gets barbs, everything else arrows — asked by the card label too."""
@@ -47,10 +35,8 @@ def is_wind_variable(name):
 
 
 def ramp_for(name):
-    for pattern, ramp in _RAMP_RULES:
-        if pattern.search(name):
-            return ramp
-    return _DEFAULT_RAMP
+    """The ramp a field is painted with, from the one table that names it too."""
+    return variable_catalog.ramp_for(name)
 
 
 def color_ramp_for(name):
@@ -61,7 +47,7 @@ def color_ramp_for(name):
     ramp_name, invert = ramp_for(name)
     ramp = QgsStyle.defaultStyle().colorRamp(ramp_name)
     if ramp is None:
-        ramp_name = _DEFAULT_RAMP[0]
+        ramp_name = variable_catalog.DEFAULT_RAMP[0]
         ramp = QgsStyle.defaultStyle().colorRamp(ramp_name)
     if ramp is not None and invert and hasattr(ramp, "invert"):
         ramp.invert()
@@ -130,13 +116,6 @@ def apply_vector(layer, variable, opacity):
 
     layer.setRendererSettings(settings)
     layer.triggerRepaint()
-
-
-def apply(layer, variable, opacity):
-    if variable["kind"] == "vector":
-        apply_vector(layer, variable, opacity)
-    else:
-        apply_scalar(layer, variable, opacity)
 
 
 def clear(layer, kind):
