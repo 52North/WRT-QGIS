@@ -8,6 +8,8 @@ from qgis.core import (
 )
 from qgis.PyQt.QtCore import QCoreApplication, QDateTime, pyqtSignal
 
+from . import variable_catalog
+
 _PROVIDER = "mdal"
 
 _FALLBACK_CRS = "EPSG:4326"
@@ -55,6 +57,23 @@ def _dedupe(names):
     return out
 
 
+def _assign_names(variables):
+    """Give every variable its final display name, unique across the list.
+
+    The catalog names the fields it recognises; anything else keeps the name
+    MDAL derived from the file.
+    """
+    proposed = [
+        variable_catalog.canonical_name(
+            variable["raw_name"], variable.get("name") or _pretty_name(variable["raw_name"])
+        )
+        for variable in variables
+    ]
+    # _dedupe returns one name per input, so the two sides cannot drift apart.
+    for variable, name in zip(variables, _dedupe(proposed), strict=True):
+        variable["name"] = name
+
+
 def build_layer(netcdf_path):
     """Open the file as a mesh. Safe to call from a worker thread."""
     layer = QgsMeshLayer(netcdf_path, "Weather data", _PROVIDER)
@@ -75,10 +94,15 @@ class WeatherMeshLoader:
     def __init__(self, netcdf_path, layer):
         self._path = netcdf_path
         self._layer = layer
+        self._derived_groups = []
         self._variables = self._read_variables()
         if not self._variables:
             raise ValueError("No weather variables found in this file.")
+        # Read the clock while every group is still one MDAL wrote, then merge
+        # the component pairs MDAL left apart and name whatever survives.
         self._timestamps = self._read_timestamps()
+        self._variables = self._merge_components(self._variables)
+        _assign_names(self._variables)
 
     @property
     def path(self):
@@ -110,10 +134,21 @@ class WeatherMeshLoader:
                     "vmax": md.maximum(),
                 }
             )
-        # _dedupe returns one name per input, so the two sides cannot drift apart.
-        for var, name in zip(raw, _dedupe([_pretty_name(v["raw_name"]) for v in raw]), strict=True):
-            var["name"] = name
         return raw
+
+    def _merge_components(self, variables):
+        """Replace each u/v scalar pair with the one vector field it describes."""
+        from .derived_vector import attach_derived_vectors
+
+        try:
+            derived, merged, groups = attach_derived_vectors(
+                self._layer, self._path, variables, _pretty_name
+            )
+        except Exception:
+            return variables
+
+        self._derived_groups = groups
+        return [v for v in variables if v["index"] not in merged] + derived
 
     def _read_timestamps(self):
         """Absolute timestamps for the slider, as reference time + offset."""

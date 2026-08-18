@@ -27,7 +27,6 @@ from qgis.PyQt.QtWidgets import (
 
 from ...config_wizard.ui.ui_kit import COLOR_MUTED, collapsible
 from ..core import layer_tree
-from ..core.sampler import sample_variable
 from ..core.timeline import ROUTE, WEATHER
 from ..styling.mesh_styler import color_ramp_for
 from .color_palette import (
@@ -36,14 +35,13 @@ from .color_palette import (
     ROUTE_TINT,
     ROUTE_TINT_BORDER,
     WEATHER_COLOR,
-    WEATHER_TINT,
-    WEATHER_TINT_BORDER,
 )
 from .layer_card import LayerCard
 from .map_legend import MapColorbarLegend
 from .readout import SEPARATOR, StatCard, format_value
 from .region_stats import RegionStatsSection
 from .source_chip import PendingChip, SourceChip, format_span
+from .vector_layer_card import AxisProxy, VectorLayerCard
 
 FLAG_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), "resources", "flag.svg")
 BOAT_PUCK_PATH = os.path.join(
@@ -69,15 +67,6 @@ _VESSEL_FIELDS = [
     ("engine_power", "Engine pwr", "kW"),
     ("fuel_consumption", "Fuel", "t/h"),
     ("bearing", "Heading", "°"),
-]
-
-# Shown when no NetCDF is loaded — the route file carries its own weather.
-_ROUTE_WEATHER_FIELDS = [
-    ("wave_height", "Wave ht", "m"),
-    ("wave_period", "Wave period", "s"),
-    ("wind_speed", "Wind", "m/s"),
-    ("wind_direction", "Wind dir", "°"),
-    ("current_speed", "Current", "kt"),
 ]
 
 _SECTION_QSS = f"""
@@ -228,7 +217,9 @@ class VisualizerPanel(QDockWidget):
         self._layers_label.setVisible(False)
         layout.addWidget(self._layers_label)
 
-        self._hint_label = QLabel("One surface and one vector field at a time.")
+        self._hint_label = QLabel(
+            "One surface and one vector field at a time. A vector field can show both at once."
+        )
         self._hint_label.setObjectName("Hint")
         self._hint_label.setWordWrap(True)
         self._hint_label.setVisible(False)
@@ -253,17 +244,10 @@ class VisualizerPanel(QDockWidget):
         header.addWidget(self._time_pill)
         layout.addLayout(header)
 
-        cards = QHBoxLayout()
-        cards.setSpacing(8)
         self._vessel_card = StatCard("Vessel", ROUTE_COLOR, ROUTE_TINT, ROUTE_TINT_BORDER)
-        self._weather_card = StatCard(
-            "Weather at vessel", WEATHER_COLOR, WEATHER_TINT, WEATHER_TINT_BORDER
-        )
-        cards.addWidget(self._vessel_card, 1)
-        cards.addWidget(self._weather_card, 1)
-        layout.addLayout(cards)
+        layout.addWidget(self._vessel_card)
 
-        self._refresh_readouts()
+        self._refresh_vessel_card()
         return box
 
     # sources
@@ -402,7 +386,10 @@ class VisualizerPanel(QDockWidget):
             self.unload_weather,
         )
         for i, variable in enumerate(loader.variables):
-            self._add_card(variable, checked=(i == 0))
+            if variable["kind"] == "vector":
+                self._add_vector_card(variable, checked_vectors=(i == 0))
+            else:
+                self._add_card(variable, checked=(i == 0))
         self._region_stats.set_source(self._mesh_layer, self._mesh_loader)
         if not self._route_layers:
             self._zoom_to(self._mesh_layer)
@@ -425,7 +412,7 @@ class VisualizerPanel(QDockWidget):
         self._route_index = None
         self._drop_chip(self._route_chip)
         self._route_chip = None
-        self._drop_card(ROUTE)
+        self._drop_card((ROUTE, "route"))
         self._rewatch_visibility()
         self._on_sources_changed()
 
@@ -448,8 +435,8 @@ class VisualizerPanel(QDockWidget):
         self._region_stats.set_source(None, None)
         self._drop_chip(self._weather_chip)
         self._weather_chip = None
-        for index in [i for i in self._cards if i != ROUTE]:
-            self._drop_card(index)
+        for key in [k for k in self._cards if k[0] != ROUTE]:
+            self._drop_card(key)
         self._rewatch_visibility()
         self._sync_legend()
         self._on_sources_changed()
@@ -474,20 +461,55 @@ class VisualizerPanel(QDockWidget):
         card = LayerCard(variable)
         card.toggled.connect(lambda on, v=variable: self._on_card_toggled(v, on))
         card.opacity_changed.connect(lambda value, v=variable: self._on_opacity_changed(v, value))
-        self._cards[variable["index"]] = card
+        self._cards[(variable["index"], variable["kind"])] = card
         self._cards_layout.addWidget(card)
         if checked:
             card.set_checked(True)
 
-    def _drop_card(self, index):
-        card = self._cards.pop(index, None)
-        if card is not None:
-            self._cards_layout.removeWidget(card)
-            card.deleteLater()
+    def _add_vector_card(self, variable, checked_vectors=False):
+        """A vector field's two ticks, both driving the same dataset group."""
+        card = VectorLayerCard(variable)
+        card.colormap_toggled.connect(
+            lambda on, v=variable: self._on_card_toggled(v, on, axis="scalar")
+        )
+        card.vectors_toggled.connect(
+            lambda on, v=variable: self._on_card_toggled(v, on, axis="vector")
+        )
+        card.opacity_changed.connect(
+            lambda value, v=variable: self._on_vector_opacity_changed(v, value)
+        )
+        for axis in ("scalar", "vector"):
+            self._cards[(variable["index"], axis)] = AxisProxy(card, axis)
+        self._cards_layout.addWidget(card)
+        if checked_vectors:
+            card.set_checked("vector", True)
 
-    def _on_card_toggled(self, variable, enabled):
-        if variable["kind"] == "route":
-            opacity = self._cards[ROUTE].opacity()
+    def _on_vector_opacity_changed(self, variable, value):
+        """One slider, both axes — whichever of them is actually drawn."""
+        self._on_opacity_changed(variable, value, axis="scalar")
+        self._on_opacity_changed(variable, value, axis="vector")
+
+    def _drop_card(self, key):
+        card = self._cards.pop(key, None)
+        if card is None:
+            return
+        # A vector chip is held under both of its axes; the first drop takes the
+        # widget away and the second finds it already gone.
+        widget = getattr(card, "widget", card)
+        if sip.isdeleted(widget):
+            return
+        self._cards_layout.removeWidget(widget)
+        widget.deleteLater()
+
+    def _on_card_toggled(self, variable, enabled, axis=None):
+        """``axis`` lets a card drive an axis other than the variable's own kind.
+
+        A vector chip's colormap tick paints the group's magnitude through the
+        scalar axis, even though the group itself is vector-kind.
+        """
+        axis = axis or variable["kind"]
+        if axis == "route":
+            opacity = self._cards[(ROUTE, "route")].opacity()
             for layer in self._route_layers:
                 layer.setOpacity(opacity)
                 layer.triggerRepaint()
@@ -499,42 +521,42 @@ class VisualizerPanel(QDockWidget):
         # A variable can only draw if the mesh layer itself is ticked.
         if enabled:
             self._set_tree_visible([self._mesh_layer], True)
-        kind = variable["kind"]
-        from ..styling.mesh_styler import apply, clear
+        from ..styling.mesh_styler import apply_scalar, apply_vector, clear
 
         if not enabled:
-            if self._active[kind] == variable["index"]:
-                self._active[kind] = None
-                clear(self._mesh_layer, kind)
-            self._refresh_readouts()
+            if self._active[axis] == variable["index"]:
+                self._active[axis] = None
+                clear(self._mesh_layer, axis)
             self._sync_legend()
             self._region_stats.set_variables(self._active_variables())
             return
 
         # One group per axis: drop whatever was showing there.
-        previous = self._active[kind]
+        previous = self._active[axis]
         if previous is not None and previous != variable["index"]:
-            card = self._cards.get(previous)
+            card = self._cards.get((previous, axis))
             if card is not None:
                 card.set_checked_silently(False)
 
-        self._active[kind] = variable["index"]
-        apply(self._mesh_layer, variable, self._cards[variable["index"]].opacity())
-        self._refresh_readouts()
+        self._active[axis] = variable["index"]
+        apply_fn = apply_scalar if axis == "scalar" else apply_vector
+        apply_fn(self._mesh_layer, variable, self._cards[(variable["index"], axis)].opacity())
         self._sync_legend()
         self._region_stats.set_variables(self._active_variables())
 
-    def _on_opacity_changed(self, variable, value):
-        if variable["kind"] == "route":
+    def _on_opacity_changed(self, variable, value, axis=None):
+        axis = axis or variable["kind"]
+        if axis == "route":
             for layer in self._route_layers:
                 layer.setOpacity(value)
                 layer.triggerRepaint()
             return
-        if self._mesh_layer is None or self._active[variable["kind"]] != variable["index"]:
+        if self._mesh_layer is None or self._active[axis] != variable["index"]:
             return
-        from ..styling.mesh_styler import apply
+        from ..styling.mesh_styler import apply_scalar, apply_vector
 
-        apply(self._mesh_layer, variable, value)
+        apply_fn = apply_scalar if axis == "scalar" else apply_vector
+        apply_fn(self._mesh_layer, variable, value)
 
     # map legend
 
@@ -552,9 +574,19 @@ class VisualizerPanel(QDockWidget):
         return self._active_variable("scalar")
 
     def _active_variables(self):
-        """Both drawn groups, scalar first — what the region statistics shows."""
+        """Both drawn groups, scalar first — what the region statistics shows.
+
+        A vector field ticked on both axes is one group, so it is listed once.
+        """
         drawn = (self._active_variable("scalar"), self._active_variable("vector"))
-        return [variable for variable in drawn if variable is not None]
+        seen = set()
+        variables = []
+        for variable in drawn:
+            if variable is None or variable["index"] in seen:
+                continue
+            seen.add(variable["index"])
+            variables.append(variable)
+        return variables
 
     def _sync_legend(self):
         """Mirror the drawn scalar group onto the canvas legend, or take it down."""
@@ -599,13 +631,13 @@ class VisualizerPanel(QDockWidget):
         if self._mesh_layer is not None and node.layerId() == self._mesh_layer.id():
             # Hiding the mesh leaves no axis on screen, so no variable is active.
             if not is_visible:
-                for card in [c for i, c in self._cards.items() if i != ROUTE]:
+                for card in [c for k, c in self._cards.items() if k[0] != ROUTE]:
                     if card.is_checked():
                         card.set_checked(False)
             return
 
         # The four route layers are one card, so any of them drags the rest along.
-        route_card = self._cards.get(ROUTE)
+        route_card = self._cards.get((ROUTE, "route"))
         if route_card is not None and route_card.is_checked() != is_visible:
             route_card.set_checked_silently(is_visible)
             self._set_tree_visible(self._route_layers, is_visible)
@@ -643,7 +675,7 @@ class VisualizerPanel(QDockWidget):
                 self.iface.mapCanvas().setTemporalRange(QgsDateTimeRange(frame, frame))
         self._region_stats.set_frame(self._weather_index)
 
-        self._refresh_readouts()
+        self._refresh_vessel_card()
 
     def snap_boat_to_route_start(self):
         if self._waypoints:
@@ -672,10 +704,6 @@ class VisualizerPanel(QDockWidget):
 
     # readouts
 
-    def _refresh_readouts(self):
-        self._refresh_vessel_card()
-        self._refresh_weather_card()
-
     def _refresh_vessel_card(self):
         if self._route_index is None:
             self._vessel_card.set_title("Vessel")
@@ -693,56 +721,6 @@ class VisualizerPanel(QDockWidget):
         rows.append(("Lat", f"{waypoint['lat']:.4f}°"))
         rows.append(("Lon", f"{waypoint['lon']:.4f}°"))
         self._vessel_card.set_rows(rows)
-
-    def _refresh_weather_card(self):
-        rows = self._sampled_weather_rows()
-        if rows is None:
-            rows = self._route_weather_rows()
-        self._weather_card.set_rows(rows)
-
-    def _sampled_weather_rows(self):
-        """Active mesh variables read at the vessel's position, or None."""
-        if self._mesh_layer is None or self._weather_index is None:
-            return None
-        if self._route_index is None:
-            return [("Vessel", "no position"), *self._frame_row()]
-
-        waypoint = self._waypoints[self._route_index]
-        point = QgsPointXY(waypoint["lon"], waypoint["lat"])
-        rows = []
-        for variable in self._mesh_loader.variables:
-            if self._active[variable["kind"]] != variable["index"]:
-                continue
-            value = sample_variable(self._mesh_layer, variable, self._weather_index, point)
-            if variable["kind"] == "vector" and value is not None:
-                magnitude, direction = value
-                rows.append((variable["name"], format_value(magnitude)))
-                rows.append((f"{variable['name']} dir", f"{direction:.0f}°"))
-            else:
-                rows.append((variable["name"], format_value(value)))
-
-        if not rows:
-            rows.append(("Layers", "none active"))
-        rows.append(SEPARATOR)
-        rows.extend(self._frame_row())
-        return rows
-
-    def _frame_row(self):
-        total = len(self._mesh_loader.timestamps) if self._mesh_loader else 0
-        return [("Frame", f"{self._weather_index + 1} / {total}")]
-
-    def _route_weather_rows(self):
-        """Fallback: the weather the route file itself carries per waypoint."""
-        if self._route_index is None:
-            return [("Weather", "no dataset loaded")]
-        waypoint = self._waypoints[self._route_index]
-        rows = [
-            (title, format_value(waypoint.get(key), unit))
-            for key, title, unit in _ROUTE_WEATHER_FIELDS
-        ]
-        rows.append(SEPARATOR)
-        rows.append(("Source", "route file"))
-        return rows
 
     # teardown
 
