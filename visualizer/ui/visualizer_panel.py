@@ -44,6 +44,7 @@ from .map_legend import MapColorbarLegend
 from .readout import SEPARATOR, StatCard, format_value
 from .region_stats import RegionStatsSection
 from .source_chip import PendingChip, SourceChip, format_span
+from .vector_layer_card import AxisProxy, VectorLayerCard
 
 FLAG_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), "resources", "flag.svg")
 BOAT_PUCK_PATH = os.path.join(
@@ -229,7 +230,8 @@ class VisualizerPanel(QDockWidget):
         layout.addWidget(self._layers_label)
 
         self._hint_label = QLabel(
-            "One surface and one vector field at a time; a vector field paints its own magnitude."
+            "One colour surface and one set of arrows at a time — from the same field or two"
+            " different ones."
         )
         self._hint_label.setObjectName("Hint")
         self._hint_label.setWordWrap(True)
@@ -404,7 +406,10 @@ class VisualizerPanel(QDockWidget):
             self.unload_weather,
         )
         for i, variable in enumerate(loader.variables):
-            self._add_card(variable, checked=(i == 0))
+            if variable["kind"] == "vector":
+                self._add_vector_card(variable, checked=(i == 0))
+            else:
+                self._add_card(variable, checked=(i == 0))
         self._region_stats.set_source(self._mesh_layer, self._mesh_loader)
         if not self._route_layers:
             self._zoom_to(self._mesh_layer)
@@ -427,7 +432,7 @@ class VisualizerPanel(QDockWidget):
         self._route_index = None
         self._drop_chip(self._route_chip)
         self._route_chip = None
-        self._drop_card(ROUTE)
+        self._drop_card((ROUTE, "route"))
         self._rewatch_visibility()
         self._on_sources_changed()
 
@@ -450,8 +455,8 @@ class VisualizerPanel(QDockWidget):
         self._region_stats.set_source(None, None)
         self._drop_chip(self._weather_chip)
         self._weather_chip = None
-        for index in [i for i in self._cards if i != ROUTE]:
-            self._drop_card(index)
+        for key in [k for k in self._cards if k[0] != ROUTE]:
+            self._drop_card(key)
         self._rewatch_visibility()
         self._sync_legend()
         self._on_sources_changed()
@@ -476,23 +481,51 @@ class VisualizerPanel(QDockWidget):
         card = LayerCard(variable)
         card.toggled.connect(lambda on, v=variable: self._on_card_toggled(v, on))
         card.opacity_changed.connect(lambda value, v=variable: self._on_opacity_changed(v, value))
-        # Either switch reconciles both axes, so the new state is read off the card, not the signal.
-        card.colormap_toggled.connect(lambda _on, v=variable: self._on_axis_toggled(v))
-        card.vectors_toggled.connect(lambda _on, v=variable: self._on_axis_toggled(v))
-        self._cards[variable["index"]] = card
+        self._cards[(variable["index"], variable["kind"])] = card
         self._cards_layout.addWidget(card)
         if checked:
             card.set_checked(True)
 
-    def _drop_card(self, index):
-        card = self._cards.pop(index, None)
-        if card is not None:
-            self._cards_layout.removeWidget(card)
-            card.deleteLater()
+    def _add_vector_card(self, variable, checked=False):
+        """A vector field's colourmap and arrows, each its own entry under the same widget."""
+        card = VectorLayerCard(variable)
+        card.colormap_toggled.connect(
+            lambda on, v=variable: self._on_card_toggled(v, on, axis="scalar")
+        )
+        card.vectors_toggled.connect(
+            lambda on, v=variable: self._on_card_toggled(v, on, axis="vector")
+        )
+        card.opacity_changed.connect(
+            lambda value, v=variable: self._on_vector_opacity_changed(v, value)
+        )
+        for axis in ("scalar", "vector"):
+            self._cards[(variable["index"], axis)] = AxisProxy(card, axis)
+        self._cards_layout.addWidget(card)
+        if checked:
+            card.set_checked("vector", True)
+            card.set_checked("scalar", True)
 
-    def _on_card_toggled(self, variable, enabled):
-        if variable["kind"] == "route":
-            opacity = self._cards[ROUTE].opacity()
+    def _on_vector_opacity_changed(self, variable, value):
+        """One slider, both axes — whichever of them is actually drawn."""
+        self._on_opacity_changed(variable, value, axis="scalar")
+        self._on_opacity_changed(variable, value, axis="vector")
+
+    def _drop_card(self, key):
+        card = self._cards.pop(key, None)
+        if card is None:
+            return
+
+        widget = getattr(card, "widget", card)
+        if sip.isdeleted(widget):
+            return
+        self._cards_layout.removeWidget(widget)
+        widget.deleteLater()
+
+    def _on_card_toggled(self, variable, enabled, axis=None):
+        """``axis`` lets a vector card's two chips each drive one renderer axis on their own."""
+        axis = axis or variable["kind"]
+        if axis == "route":
+            opacity = self._cards[(ROUTE, "route")].opacity()
             for layer in self._route_layers:
                 layer.setOpacity(opacity)
                 layer.triggerRepaint()
@@ -504,119 +537,42 @@ class VisualizerPanel(QDockWidget):
         # A variable can only draw if the mesh layer itself is ticked.
         if enabled:
             self._set_tree_visible([self._mesh_layer], True)
-        from ..styling.mesh_styler import apply_scalar
+        from ..styling.mesh_styler import apply_scalar, apply_vector, clear
 
         if not enabled:
-            self._release_axes(variable["index"])
+            if self._active[axis] == variable["index"]:
+                self._active[axis] = None
+                clear(self._mesh_layer, axis)
             self._after_render_change()
             return
 
-        card = self._cards[variable["index"]]
-        if variable["kind"] == "vector":
-            self._draw_vector(variable, card)
-        else:
-            self._release_scalar_axis(variable["index"])
-            self._active["scalar"] = variable["index"]
-            apply_scalar(self._mesh_layer, variable, card.opacity())
+        # One group per axis: drop whatever was showing there.
+        previous = self._active[axis]
+        if previous is not None and previous != variable["index"]:
+            previous_card = self._cards.get((previous, axis))
+            if previous_card is not None:
+                previous_card.set_checked_silently(False)
+
+        self._active[axis] = variable["index"]
+        card = self._cards[(variable["index"], axis)]
+        apply_fn = apply_scalar if axis == "scalar" else apply_vector
+        apply_fn(self._mesh_layer, variable, card.opacity())
         self._after_render_change()
 
-    def _on_axis_toggled(self, variable):
-        """One of a vector card's two switches moved; reconcile both axes with it."""
-        card = self._cards.get(variable["index"])
-        if self._mesh_layer is None or card is None or not card.is_checked():
-            return
-        self._draw_vector(variable, card)
-        self._after_render_change()
-
-    def _draw_vector(self, variable, card):
-        """Claim or release each axis to match the card's Colour map and Vectors switches.
-
-        The two are independent, so a group can paint only its surface, only its arrows, or
-        both — and it evicts other groups from the axes it claims, no more.
-        """
-        from ..styling.mesh_styler import apply_scalar, apply_vector, clear
-
-        index = variable["index"]
-        if card.is_vectors_on():
-            self._release_vector_axis(index)
-            self._active["vector"] = index
-            apply_vector(self._mesh_layer, variable, card.opacity())
-        elif self._active["vector"] == index:
-            self._active["vector"] = None
-            clear(self._mesh_layer, "vector")
-
-        if card.is_colormap_on():
-            self._release_scalar_axis(index)
-            self._active["scalar"] = index
-            apply_scalar(self._mesh_layer, variable, card.opacity())
-        elif self._active["scalar"] == index:
-            self._active["scalar"] = None
-            clear(self._mesh_layer, "scalar")
-
-    def _on_opacity_changed(self, variable, value):
-        if variable["kind"] == "route":
+    def _on_opacity_changed(self, variable, value, axis=None):
+        axis = axis or variable["kind"]
+        if axis == "route":
             for layer in self._route_layers:
                 layer.setOpacity(value)
                 layer.triggerRepaint()
             return
-        if self._mesh_layer is None:
+        # The slider only bites while the variable still holds this axis.
+        if self._mesh_layer is None or self._active[axis] != variable["index"]:
             return
-        # The slider only bites while the variable still holds an axis; it may hold both.
-        if variable["index"] not in (self._active["scalar"], self._active["vector"]):
-            return
-        from ..styling.mesh_styler import apply
+        from ..styling.mesh_styler import apply_scalar, apply_vector
 
-        card = self._cards[variable["index"]]
-        apply(
-            self._mesh_layer,
-            variable,
-            value,
-            show_colormap=card.is_colormap_on(),
-            show_vectors=card.is_vectors_on(),
-        )
-
-    # renderer axes
-
-    def _release_axes(self, index):
-        """Stop drawing everything ``index`` holds — both axes, if it holds both."""
-        from ..styling.mesh_styler import clear
-
-        for kind in ("scalar", "vector"):
-            if self._active[kind] == index:
-                self._active[kind] = None
-                clear(self._mesh_layer, kind)
-
-    def _release_scalar_axis(self, claimant_index):
-        """Take the surface off whoever holds it, making room for ``claimant_index``.
-
-        A vector group only loses its magnitude here and keeps drawing its arrows, while a
-        scalar group is nothing but its surface, so that card unticks outright.
-        """
-        from ..styling.mesh_styler import clear
-
-        holder = self._active["scalar"]
-        if holder is None or holder == claimant_index:
-            return
-        self._active["scalar"] = None
-        clear(self._mesh_layer, "scalar")
-
-        card = self._cards.get(holder)
-        if card is None:
-            return
-        if holder == self._active["vector"]:
-            card.set_colormap_silently(False)
-        else:
-            card.set_checked_silently(False)
-
-    def _release_vector_axis(self, claimant_index):
-        """Untick whichever group draws the arrows, taking its magnitude surface with it."""
-        holder = self._active["vector"]
-        if holder is None or holder == claimant_index:
-            return
-        self._release_axes(holder)
-        card = self._cards.get(holder)
-        if card is not None:
-            card.set_checked_silently(False)
+        apply_fn = apply_scalar if axis == "scalar" else apply_vector
+        apply_fn(self._mesh_layer, variable, value)
 
     def _after_render_change(self):
         """Everything downstream of the drawn groups, refreshed in one place."""
@@ -694,13 +650,13 @@ class VisualizerPanel(QDockWidget):
         if self._mesh_layer is not None and node.layerId() == self._mesh_layer.id():
             # Hiding the mesh leaves no axis on screen, so no variable is active.
             if not is_visible:
-                for card in [c for i, c in self._cards.items() if i != ROUTE]:
+                for card in [c for k, c in self._cards.items() if k[0] != ROUTE]:
                     if card.is_checked():
                         card.set_checked(False)
             return
 
         # The four route layers are one card, so any of them drags the rest along.
-        route_card = self._cards.get(ROUTE)
+        route_card = self._cards.get((ROUTE, "route"))
         if route_card is not None and route_card.is_checked() != is_visible:
             route_card.set_checked_silently(is_visible)
             self._set_tree_visible(self._route_layers, is_visible)
@@ -806,7 +762,8 @@ class VisualizerPanel(QDockWidget):
         point = QgsPointXY(waypoint["lon"], waypoint["lat"])
         rows = []
         for variable in self._mesh_loader.variables:
-            if self._active[variable["kind"]] != variable["index"]:
+            # A vector field holds both axes, so only one of them is active at a time.
+            if variable["index"] not in (self._active["scalar"], self._active["vector"]):
                 continue
             value = sample_variable(self._mesh_layer, variable, self._weather_index, point)
             if variable["kind"] == "vector" and value is not None:

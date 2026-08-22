@@ -16,7 +16,6 @@ from ...config_wizard.ui.ui_kit import (
     COLOR_TEXT,
 )
 from ..styling.mesh_styler import color_ramp_for, is_wind_variable
-from .axis_chip import AxisChip
 from .color_bar import ColorBar
 from .color_palette import ROUTE_COLOR, ROUTE_TINT, WEATHER_COLOR, WEATHER_TINT
 
@@ -93,14 +92,10 @@ class LayerCard(QFrame):
 
     toggled = pyqtSignal(bool)
     opacity_changed = pyqtSignal(float)
-    colormap_toggled = pyqtSignal(bool)
-    vectors_toggled = pyqtSignal(bool)
 
     def __init__(self, variable, parent=None):
         super().__init__(parent)
         self._variable = variable
-        self._colormap = None
-        self._vectors = None
         self.setObjectName("LayerCard")
         accent, tint = _ACCENTS.get(variable["kind"], _DEFAULT_ACCENT)
         self.setStyleSheet(_card_qss(accent, tint))
@@ -141,8 +136,6 @@ class LayerCard(QFrame):
 
         # if "vmin" in self._variable and "vmax" in self._variable:
         #     self._build_range(body)
-        if self._variable["kind"] == "vector":
-            self._build_axis_switches(body)
         self._build_opacity(body)
 
         self._body.setVisible(False)
@@ -169,56 +162,6 @@ class LayerCard(QFrame):
         row.addStretch()
         row.addWidget(_muted(_fmt(self._variable["vmax"])))
         body.addLayout(row)
-
-    def _build_axis_switches(self, body):
-        """Only a vector group has a choice here.
-
-        QGIS draws such a group on both renderer axes at once — its magnitude as a
-        colour-ramped surface, its direction as arrows — and these two switch each axis on
-        its own. A scalar group is nothing but its surface, so the card's own tick already
-        says everything.
-        """
-        name = self._variable["name"]
-        symbol = "wind barbs" if is_wind_variable(name) else "arrows"
-        accent, tint = _ACCENTS.get(self._variable["kind"], _DEFAULT_ACCENT)
-        _ramp, ramp_name = color_ramp_for(name)
-
-        self._colormap = self._axis_chip(
-            AxisChip(
-                "Colourmap",
-                f"Paint this field's magnitude as a colour-ramped surface ({ramp_name})",
-                accent,
-                tint,
-            ),
-            self.colormap_toggled,
-        )
-        self._vectors = self._axis_chip(
-            AxisChip("Vectors", f"Draw this field's direction as {symbol}", accent, tint),
-            self.vectors_toggled,
-        )
-
-        row = QHBoxLayout()
-        row.setSpacing(6)
-        row.addWidget(self._colormap)
-        row.addWidget(self._vectors)
-        row.addStretch()
-        body.addLayout(row)
-
-    def _axis_chip(self, chip, signal):
-        chip.toggled.connect(signal)
-        chip.toggled.connect(self._refresh_axis_switches)
-        return chip
-
-    def _refresh_axis_switches(self):
-        """Never let both axes go dark — the card would be ticked but draw nothing.
-
-        Whichever switch is the last one still on is locked on, so untick the card itself
-        to stop drawing this group entirely.
-        """
-        is_only_colormap = self._colormap.isChecked() and not self._vectors.isChecked()
-        is_only_vectors = self._vectors.isChecked() and not self._colormap.isChecked()
-        self._colormap.set_locked(is_only_colormap)
-        self._vectors.set_locked(is_only_vectors)
 
     def _build_opacity(self, body):
         opacity_row = QHBoxLayout()
@@ -261,27 +204,6 @@ class LayerCard(QFrame):
 
     def opacity(self):
         return self._opacity.value() / 100.0
-
-    def has_axis_switches(self):
-        """Only a vector card can split its two axes; a scalar card draws one thing."""
-        return self._colormap is not None
-
-    def is_colormap_on(self):
-        """A card without the switches is its colourmap, so it is always on."""
-        return self._colormap is None or self._colormap.isChecked()
-
-    def is_vectors_on(self):
-        """Only meaningful on a vector card — a scalar group has no arrows to hide."""
-        return self._vectors is None or self._vectors.isChecked()
-
-    def set_colormap_silently(self, is_on):
-        """Untick the colourmap without re-entering the handler that is evicting us."""
-        if self._colormap is None:
-            return
-        blocked = self._colormap.blockSignals(True)
-        self._colormap.setChecked(is_on)
-        self._colormap.blockSignals(blocked)
-        self._refresh_axis_switches()
 
     def is_checked(self):
         return self._check.isChecked()

@@ -14,7 +14,6 @@ _FONT_SIZE = 11
 
 _OFF_BG = "#f1f3f5"
 _OFF_BG_HOVER = "#e5e9ed"
-_LOCKED_BORDER_ALPHA = 110
 
 
 class AxisChip(QAbstractButton):
@@ -25,9 +24,6 @@ class AxisChip(QAbstractButton):
         self._accent = accent
         self._tint = tint
         self._is_hovered = False
-        self._is_locked = False
-        self._tooltip = tooltip
-        self._locked_tooltip = f"{tooltip}\n\nKept on: untick the layer to stop drawing it."
 
         self.setText(text)
         self.setCheckable(True)
@@ -41,17 +37,6 @@ class AxisChip(QAbstractButton):
         font.setPixelSize(_FONT_SIZE)
         self.setFont(font)
 
-    def set_locked(self, is_locked):
-        """Pin the chip on without dimming it — a dim chip reads as an axis that is off."""
-        if is_locked == self._is_locked:
-            return
-        self._is_locked = is_locked
-        self.setEnabled(not is_locked)
-        self.setCursor(Qt.ArrowCursor if is_locked else Qt.PointingHandCursor)
-        self.setToolTip(self._locked_tooltip if is_locked else self._tooltip)
-        self._is_hovered = False
-        self.update()
-
     def sizeHint(self):
         text_width = self.fontMetrics().horizontalAdvance(self.text())
         return QSize(text_width + 2 * _PAD_H, CHIP_HEIGHT)
@@ -60,9 +45,8 @@ class AxisChip(QAbstractButton):
         return self.sizeHint()
 
     def enterEvent(self, event):
-        if not self._is_locked:
-            self._is_hovered = True
-            self.update()
+        self._is_hovered = True
+        self.update()
         super().enterEvent(event)
 
     def leaveEvent(self, event):
@@ -82,8 +66,6 @@ class AxisChip(QAbstractButton):
         if self.isChecked():
             fill = QColor(self._tint)
             border = QColor(self._accent)
-            if self._is_locked:
-                border.setAlpha(_LOCKED_BORDER_ALPHA)
         else:
             fill = QColor(_OFF_BG_HOVER if self._is_hovered else _OFF_BG)
             border = QColor(fill)

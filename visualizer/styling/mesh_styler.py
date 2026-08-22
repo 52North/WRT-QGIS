@@ -132,17 +132,6 @@ def apply_vector(layer, variable, opacity):
     layer.triggerRepaint()
 
 
-def apply(layer, variable, opacity, show_colormap=True, show_vectors=True):
-    """A vector group along with its colormap, as treated by MDAL."""
-    if variable["kind"] == "vector":
-        if show_vectors:
-            apply_vector(layer, variable, opacity)
-        if show_colormap:
-            apply_scalar(layer, variable, opacity)
-    else:
-        apply_scalar(layer, variable, opacity)
-
-
 def clear(layer, kind):
     """Stop rendering one axis, leaving the other untouched."""
     settings = layer.rendererSettings()
