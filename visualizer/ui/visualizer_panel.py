@@ -27,18 +27,9 @@ from qgis.PyQt.QtWidgets import (
 
 from ...config_wizard.ui.ui_kit import COLOR_MUTED, collapsible
 from ..core import layer_tree
-from ..core.sampler import sample_variable
 from ..core.timeline import ROUTE, WEATHER
 from ..styling.mesh_styler import color_ramp_for
-from .color_palette import (
-    MONO_FAMILY,
-    ROUTE_COLOR,
-    ROUTE_TINT,
-    ROUTE_TINT_BORDER,
-    WEATHER_COLOR,
-    WEATHER_TINT,
-    WEATHER_TINT_BORDER,
-)
+from .color_palette import MONO_FAMILY, ROUTE_COLOR, ROUTE_TINT, ROUTE_TINT_BORDER, WEATHER_COLOR
 from .layer_card import LayerCard
 from .map_legend import MapColorbarLegend
 from .readout import SEPARATOR, StatCard, format_value
@@ -70,15 +61,6 @@ _VESSEL_FIELDS = [
     ("engine_power", "Engine pwr", "kW"),
     ("fuel_consumption", "Fuel", "t/h"),
     ("bearing", "Heading", "°"),
-]
-
-# Shown when no NetCDF is loaded — the route file carries its own weather.
-_ROUTE_WEATHER_FIELDS = [
-    ("wave_height", "Wave ht", "m"),
-    ("wave_period", "Wave period", "s"),
-    ("wind_speed", "Wind", "m/s"),
-    ("wind_direction", "Wind dir", "°"),
-    ("current_speed", "Current", "kt"),
 ]
 
 _SECTION_QSS = f"""
@@ -257,17 +239,10 @@ class VisualizerPanel(QDockWidget):
         header.addWidget(self._time_pill)
         layout.addLayout(header)
 
-        cards = QHBoxLayout()
-        cards.setSpacing(8)
         self._vessel_card = StatCard("Vessel", ROUTE_COLOR, ROUTE_TINT, ROUTE_TINT_BORDER)
-        self._weather_card = StatCard(
-            "Weather at vessel", WEATHER_COLOR, WEATHER_TINT, WEATHER_TINT_BORDER
-        )
-        cards.addWidget(self._vessel_card, 1)
-        cards.addWidget(self._weather_card, 1)
-        layout.addLayout(cards)
+        layout.addWidget(self._vessel_card)
 
-        self._refresh_readouts()
+        self._refresh_vessel_card()
         return box
 
     # sources
@@ -576,7 +551,6 @@ class VisualizerPanel(QDockWidget):
 
     def _after_render_change(self):
         """Everything downstream of the drawn groups, refreshed in one place."""
-        self._refresh_readouts()
         self._sync_legend()
         self._region_stats.set_variables(self._active_variables())
 
@@ -694,7 +668,7 @@ class VisualizerPanel(QDockWidget):
                 self.iface.mapCanvas().setTemporalRange(QgsDateTimeRange(frame, frame))
         self._region_stats.set_frame(self._weather_index)
 
-        self._refresh_readouts()
+        self._refresh_vessel_card()
 
     def snap_boat_to_route_start(self):
         if self._waypoints:
@@ -723,10 +697,6 @@ class VisualizerPanel(QDockWidget):
 
     # readouts
 
-    def _refresh_readouts(self):
-        self._refresh_vessel_card()
-        self._refresh_weather_card()
-
     def _refresh_vessel_card(self):
         if self._route_index is None:
             self._vessel_card.set_title("Vessel")
@@ -744,57 +714,6 @@ class VisualizerPanel(QDockWidget):
         rows.append(("Lat", f"{waypoint['lat']:.4f}°"))
         rows.append(("Lon", f"{waypoint['lon']:.4f}°"))
         self._vessel_card.set_rows(rows)
-
-    def _refresh_weather_card(self):
-        rows = self._sampled_weather_rows()
-        if rows is None:
-            rows = self._route_weather_rows()
-        self._weather_card.set_rows(rows)
-
-    def _sampled_weather_rows(self):
-        """Active mesh variables read at the vessel's position, or None."""
-        if self._mesh_layer is None or self._weather_index is None:
-            return None
-        if self._route_index is None:
-            return [("Vessel", "no position"), *self._frame_row()]
-
-        waypoint = self._waypoints[self._route_index]
-        point = QgsPointXY(waypoint["lon"], waypoint["lat"])
-        rows = []
-        for variable in self._mesh_loader.variables:
-            # A vector field holds both axes, so only one of them is active at a time.
-            if variable["index"] not in (self._active["scalar"], self._active["vector"]):
-                continue
-            value = sample_variable(self._mesh_layer, variable, self._weather_index, point)
-            if variable["kind"] == "vector" and value is not None:
-                magnitude, direction = value
-                rows.append((variable["name"], format_value(magnitude)))
-                rows.append((f"{variable['name']} dir", f"{direction:.0f}°"))
-            else:
-                rows.append((variable["name"], format_value(value)))
-
-        if not rows:
-            rows.append(("Layers", "none active"))
-        rows.append(SEPARATOR)
-        rows.extend(self._frame_row())
-        return rows
-
-    def _frame_row(self):
-        total = len(self._mesh_loader.timestamps) if self._mesh_loader else 0
-        return [("Frame", f"{self._weather_index + 1} / {total}")]
-
-    def _route_weather_rows(self):
-        """Fallback: the weather the route file itself carries per waypoint."""
-        if self._route_index is None:
-            return [("Weather", "no dataset loaded")]
-        waypoint = self._waypoints[self._route_index]
-        rows = [
-            (title, format_value(waypoint.get(key), unit))
-            for key, title, unit in _ROUTE_WEATHER_FIELDS
-        ]
-        rows.append(SEPARATOR)
-        rows.append(("Source", "route file"))
-        return rows
 
     # teardown
 
