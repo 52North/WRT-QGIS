@@ -23,7 +23,7 @@ def _fmt(value):
 def _elided(label, text, max_width):
     """Elide ``text`` to fit within ``max_width`` px, keeping the full text as a tooltip."""
     metrics = QFontMetrics(label.font())
-    label.setText(metrics.elidedText(text, Qt.ElideRight, max_width))
+    label.setText(metrics.elidedText(text, Qt.ElideMiddle, max_width))
     label.setToolTip(text)
 
 

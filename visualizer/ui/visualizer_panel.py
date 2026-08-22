@@ -228,7 +228,9 @@ class VisualizerPanel(QDockWidget):
         self._layers_label.setVisible(False)
         layout.addWidget(self._layers_label)
 
-        self._hint_label = QLabel("One surface and one vector field at a time.")
+        self._hint_label = QLabel(
+            "One surface and one vector field at a time; a vector field paints its own magnitude."
+        )
         self._hint_label.setObjectName("Hint")
         self._hint_label.setWordWrap(True)
         self._hint_label.setVisible(False)
@@ -474,6 +476,9 @@ class VisualizerPanel(QDockWidget):
         card = LayerCard(variable)
         card.toggled.connect(lambda on, v=variable: self._on_card_toggled(v, on))
         card.opacity_changed.connect(lambda value, v=variable: self._on_opacity_changed(v, value))
+        # Either switch reconciles both axes, so the new state is read off the card, not the signal.
+        card.colormap_toggled.connect(lambda _on, v=variable: self._on_axis_toggled(v))
+        card.vectors_toggled.connect(lambda _on, v=variable: self._on_axis_toggled(v))
         self._cards[variable["index"]] = card
         self._cards_layout.addWidget(card)
         if checked:
@@ -499,30 +504,54 @@ class VisualizerPanel(QDockWidget):
         # A variable can only draw if the mesh layer itself is ticked.
         if enabled:
             self._set_tree_visible([self._mesh_layer], True)
-        kind = variable["kind"]
-        from ..styling.mesh_styler import apply, clear
+        from ..styling.mesh_styler import apply_scalar
 
         if not enabled:
-            if self._active[kind] == variable["index"]:
-                self._active[kind] = None
-                clear(self._mesh_layer, kind)
-            self._refresh_readouts()
-            self._sync_legend()
-            self._region_stats.set_variables(self._active_variables())
+            self._release_axes(variable["index"])
+            self._after_render_change()
             return
 
-        # One group per axis: drop whatever was showing there.
-        previous = self._active[kind]
-        if previous is not None and previous != variable["index"]:
-            card = self._cards.get(previous)
-            if card is not None:
-                card.set_checked_silently(False)
+        card = self._cards[variable["index"]]
+        if variable["kind"] == "vector":
+            self._draw_vector(variable, card)
+        else:
+            self._release_scalar_axis(variable["index"])
+            self._active["scalar"] = variable["index"]
+            apply_scalar(self._mesh_layer, variable, card.opacity())
+        self._after_render_change()
 
-        self._active[kind] = variable["index"]
-        apply(self._mesh_layer, variable, self._cards[variable["index"]].opacity())
-        self._refresh_readouts()
-        self._sync_legend()
-        self._region_stats.set_variables(self._active_variables())
+    def _on_axis_toggled(self, variable):
+        """One of a vector card's two switches moved; reconcile both axes with it."""
+        card = self._cards.get(variable["index"])
+        if self._mesh_layer is None or card is None or not card.is_checked():
+            return
+        self._draw_vector(variable, card)
+        self._after_render_change()
+
+    def _draw_vector(self, variable, card):
+        """Claim or release each axis to match the card's Colour map and Vectors switches.
+
+        The two are independent, so a group can paint only its surface, only its arrows, or
+        both — and it evicts other groups from the axes it claims, no more.
+        """
+        from ..styling.mesh_styler import apply_scalar, apply_vector, clear
+
+        index = variable["index"]
+        if card.is_vectors_on():
+            self._release_vector_axis(index)
+            self._active["vector"] = index
+            apply_vector(self._mesh_layer, variable, card.opacity())
+        elif self._active["vector"] == index:
+            self._active["vector"] = None
+            clear(self._mesh_layer, "vector")
+
+        if card.is_colormap_on():
+            self._release_scalar_axis(index)
+            self._active["scalar"] = index
+            apply_scalar(self._mesh_layer, variable, card.opacity())
+        elif self._active["scalar"] == index:
+            self._active["scalar"] = None
+            clear(self._mesh_layer, "scalar")
 
     def _on_opacity_changed(self, variable, value):
         if variable["kind"] == "route":
@@ -530,11 +559,70 @@ class VisualizerPanel(QDockWidget):
                 layer.setOpacity(value)
                 layer.triggerRepaint()
             return
-        if self._mesh_layer is None or self._active[variable["kind"]] != variable["index"]:
+        if self._mesh_layer is None:
+            return
+        # The slider only bites while the variable still holds an axis; it may hold both.
+        if variable["index"] not in (self._active["scalar"], self._active["vector"]):
             return
         from ..styling.mesh_styler import apply
 
-        apply(self._mesh_layer, variable, value)
+        card = self._cards[variable["index"]]
+        apply(
+            self._mesh_layer,
+            variable,
+            value,
+            show_colormap=card.is_colormap_on(),
+            show_vectors=card.is_vectors_on(),
+        )
+
+    # renderer axes
+
+    def _release_axes(self, index):
+        """Stop drawing everything ``index`` holds — both axes, if it holds both."""
+        from ..styling.mesh_styler import clear
+
+        for kind in ("scalar", "vector"):
+            if self._active[kind] == index:
+                self._active[kind] = None
+                clear(self._mesh_layer, kind)
+
+    def _release_scalar_axis(self, claimant_index):
+        """Take the surface off whoever holds it, making room for ``claimant_index``.
+
+        A vector group only loses its magnitude here and keeps drawing its arrows, while a
+        scalar group is nothing but its surface, so that card unticks outright.
+        """
+        from ..styling.mesh_styler import clear
+
+        holder = self._active["scalar"]
+        if holder is None or holder == claimant_index:
+            return
+        self._active["scalar"] = None
+        clear(self._mesh_layer, "scalar")
+
+        card = self._cards.get(holder)
+        if card is None:
+            return
+        if holder == self._active["vector"]:
+            card.set_colormap_silently(False)
+        else:
+            card.set_checked_silently(False)
+
+    def _release_vector_axis(self, claimant_index):
+        """Untick whichever group draws the arrows, taking its magnitude surface with it."""
+        holder = self._active["vector"]
+        if holder is None or holder == claimant_index:
+            return
+        self._release_axes(holder)
+        card = self._cards.get(holder)
+        if card is not None:
+            card.set_checked_silently(False)
+
+    def _after_render_change(self):
+        """Everything downstream of the drawn groups, refreshed in one place."""
+        self._refresh_readouts()
+        self._sync_legend()
+        self._region_stats.set_variables(self._active_variables())
 
     # map legend
 
@@ -552,9 +640,16 @@ class VisualizerPanel(QDockWidget):
         return self._active_variable("scalar")
 
     def _active_variables(self):
-        """Both drawn groups, scalar first — what the region statistics shows."""
-        drawn = (self._active_variable("scalar"), self._active_variable("vector"))
-        return [variable for variable in drawn if variable is not None]
+        """Every drawn group, scalar first — what the region statistics shows.
+
+        A vector group painting its own magnitude holds both axes, and is still one variable.
+        """
+        drawn = []
+        for kind in ("scalar", "vector"):
+            variable = self._active_variable(kind)
+            if variable is not None and variable not in drawn:
+                drawn.append(variable)
+        return drawn
 
     def _sync_legend(self):
         """Mirror the drawn scalar group onto the canvas legend, or take it down."""

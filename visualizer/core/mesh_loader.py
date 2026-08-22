@@ -8,6 +8,8 @@ from qgis.core import (
 )
 from qgis.PyQt.QtCore import QCoreApplication, QDateTime, pyqtSignal
 
+from .netcdf_units import format_unit, unit_for, unit_table
+
 _PROVIDER = "mdal"
 
 _FALLBACK_CRS = "EPSG:4326"
@@ -41,7 +43,7 @@ def _unit(metadata):
         return ""
     for key, value in options.items():
         if key.strip().lower() in ("unit", "units"):
-            return value.strip()
+            return format_unit(value)
     return ""
 
 
@@ -98,6 +100,7 @@ class WeatherMeshLoader:
 
     def _read_variables(self):
         raw = []
+        units = unit_table(self._path)
         for i in range(self._layer.datasetGroupCount()):
             md = self._layer.datasetGroupMetadata(QgsMeshDatasetIndex(i, 0))
             raw.append(
@@ -105,7 +108,7 @@ class WeatherMeshLoader:
                     "index": i,
                     "raw_name": md.name(),
                     "kind": "scalar" if md.isScalar() else "vector",
-                    "unit": _unit(md),
+                    "unit": _unit(md) or unit_for(units, md.name()),
                     "vmin": md.minimum(),
                     "vmax": md.maximum(),
                 }
