@@ -1,6 +1,6 @@
 # WRT-QGIS
 
-QGIS Plugin for the Weather Routing Tool
+QGIS Plugin for the [Weather Routing Tool](https://github.com/52North/WeatherRoutingTool)
 
 ## Requirements
 
