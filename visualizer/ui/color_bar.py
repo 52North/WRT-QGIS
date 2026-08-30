@@ -15,7 +15,8 @@ BAR_HEIGHT = 12
 _RADIUS = 3
 _STOPS = 24  # Number of stops to sample from the ramp.
 _TICK_HEIGHT = 4
-_TICK_LABEL_GAP = 2
+_TICK_LABEL_GAP = 2  # Vertical gap between a tick mark and its label.
+_TICK_LABEL_SPACING = 16  # Minimum horizontal gap kept between adjacent tick labels.
 _TICK_FONT_PX = 10
 
 
@@ -75,7 +76,7 @@ class TickAxis(QWidget):
         self._ticks = list(ticks)
         self.update()
 
-    def required_width(self, gap=4):
+    def required_width(self, gap=_TICK_LABEL_SPACING):
         """Narrowest width at which every tick label clears its neighbours by ``gap`` px."""
         if len(self._ticks) < 2:
             return 0

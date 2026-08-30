@@ -1,5 +1,7 @@
 """A colour ramp legend floating over the map canvas."""
 
+import math
+
 from qgis.PyQt.QtCore import QEvent, Qt
 from qgis.PyQt.QtGui import QFontMetrics
 from qgis.PyQt.QtWidgets import QFrame, QLabel, QVBoxLayout
@@ -17,7 +19,7 @@ _TICK_FRACTIONS = (0, 0.25, 0.5, 0.75, 1)
 
 
 def _fmt(value):
-    return f"{value:.4g}"
+    return f"{value:.2f}".rstrip("0").rstrip(".") if math.isfinite(value) else str(value)
 
 
 def _elided(label, text, max_width):
