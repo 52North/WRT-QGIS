@@ -49,6 +49,7 @@ QLabel#TypeBadge {{
     font-size: 10px;
 }}
 QLabel#RangeLabel {{ color: {COLOR_MUTED}; font-size: 10px; }}
+QLabel#RowLabel {{ color: {COLOR_MUTED}; font-size: 10px; }}
 
 QSlider::groove:horizontal {{
     height: 4px; border-radius: 2px; background: {COLOR_BORDER};
@@ -73,6 +74,16 @@ _BADGES = {"vector": "vectors", "scalar": "raster", "route": "vector"}
 def _muted(text):
     label = QLabel(text)
     label.setObjectName("RangeLabel")
+    return label
+
+
+_ROW_LABEL_WIDTH = 44
+
+
+def _row_label(text):
+    label = QLabel(text)
+    label.setObjectName("RowLabel")
+    label.setMinimumWidth(_ROW_LABEL_WIDTH)
     return label
 
 
@@ -118,8 +129,8 @@ class LayerCard(QFrame):
 
         self._body = QFrame()
         body = QVBoxLayout(self._body)
-        body.setContentsMargins(2, 0, 2, 0)
-        body.setSpacing(4)
+        body.setContentsMargins(2, 2, 2, 0)
+        body.setSpacing(6)
 
         ###### Disabled for now ######
 
@@ -155,7 +166,7 @@ class LayerCard(QFrame):
     def _build_opacity(self, body):
         opacity_row = QHBoxLayout()
         opacity_row.setSpacing(6)
-        opacity_row.addWidget(_muted("Opacity"))
+        opacity_row.addWidget(_row_label("Opacity"))
 
         percent = self._variable.get("default_opacity", 75)
         self._opacity = QSlider(Qt.Horizontal)

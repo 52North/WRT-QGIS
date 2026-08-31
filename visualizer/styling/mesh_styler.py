@@ -12,7 +12,7 @@ VECTOR_COLOR = QColor(31, 58, 95)
 VECTOR_LINE_WIDTH = 0.8
 
 # Modifying this value will change the spacing of arrows and streamlines on the map.
-VECTOR_GRID_PX = 32
+VECTOR_GRID_PX = 24
 
 # Modifying this value will change the spacing of wind barbs on the map.
 BARB_GRID_PX = 48
@@ -22,14 +22,14 @@ BARB_SHAFT_MM = 7.0
 # Barbs are the meteorological convention for wind, but not for currents.
 _WIND_RE = re.compile(r"wind", re.I)
 
-_RAMP_CLASSES = 5
+_RAMP_CLASSES = 32
 
 NO_GROUP = -1  # No active group, renders nothing on that axis.
 
 # Ramp per variable family, matched against the display name.
 # (ramp name, invert) — inverted RdYlBu reads cold-blue to hot-red.
 _RAMP_RULES = [
-    (re.compile(r"wave height|hm0", re.I), ("Blues", False)),
+    (re.compile(r"wave height|hm0", re.I), ("BuYl", False)),
     (re.compile(r"wave period|tp\b", re.I), ("Purples", False)),
     (re.compile(r"direction", re.I), ("Spectral", False)),
     (re.compile(r"temperature", re.I), ("RdYlBu", True)),
@@ -130,13 +130,6 @@ def apply_vector(layer, variable, opacity):
 
     layer.setRendererSettings(settings)
     layer.triggerRepaint()
-
-
-def apply(layer, variable, opacity):
-    if variable["kind"] == "vector":
-        apply_vector(layer, variable, opacity)
-    else:
-        apply_scalar(layer, variable, opacity)
 
 
 def clear(layer, kind):
