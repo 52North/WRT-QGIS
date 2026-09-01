@@ -43,6 +43,36 @@ To update to a newer version, repeat the **Install from ZIP** steps with the new
 ZIP file. QGIS will overwrite the existing installation. Restart QGIS if the
 changes do not appear immediately.
 
+## Preparing weather data
+
+Run this over a NetCDF before loading it into the plugin — it takes a second and
+gives better results.
+
+MDAL pairs the two components into a single vector field by
+comparing those names exactly, so one extra space is enough to stop it: the file
+loads as two separate scalar layers, and the field can never be drawn as arrows.
+That pairing is decided while the file is being opened, so the plugin cannot
+correct it afterwards.
+
+```bash
+python tools/fix_netcdf_names.py data.nc
+```
+
+If the file is fine, it says so and writes nothing:
+
+```
+data.nc: no issue found
+```
+
+Otherwise a repaired copy is written next to it. The input file is never
+modified — load the `_fixed` file in the plugin:
+
+```
+data.nc: fixed vtotal → wrote data_fixed.nc
+```
+
+The script needs the `netCDF4` package (`pip install netCDF4`), and the repaired copy is a full duplicate of the input.
+
 ## Development
 
 ### Linting & formatting
