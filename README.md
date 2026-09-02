@@ -24,7 +24,13 @@ The plugin can be installed directly from a ZIP archive through the QGIS Plugin 
 ### 1. Get the plugin ZIP
 
 Download the latest `WRT-QGIS.zip` from the
-[releases page](https://github.com/52north/WRT-QGIS/releases).
+[releases page](https://github.com/52north/WRT-QGIS/releases), or build it yourself from the source:
+
+```bash
+git clone https://github.com/52north/WRT-QGIS.git
+# Create a ZIP whose top-level folder matches the plugin name
+zip -r WRT-QGIS.zip WRT-QGIS -x "WRT-QGIS/.git/*" "WRT-QGIS/.gitignore"
+```
 
 ### 2. Install through the QGIS Plugin Manager
 
